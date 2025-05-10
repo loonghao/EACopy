@@ -186,6 +186,14 @@ try {
     # Auto-detect EACopy.exe if path not provided
     if (-not $EACopyPath) {
         $PossiblePaths = @(
+            # Correct paths based on user feedback
+            ".\build\Release\EACopy.exe",
+            ".\build\Debug\EACopy.exe",
+            "..\build\Release\EACopy.exe",
+            "..\build\Debug\EACopy.exe",
+            "$PSScriptRoot\..\build\Release\EACopy.exe",
+            "$PSScriptRoot\..\build\Debug\EACopy.exe",
+
             # Local development paths
             ".\Release\EACopy.exe",
             ".\Debug\EACopy.exe",

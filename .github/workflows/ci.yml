@@ -95,12 +95,52 @@ jobs:
 
     - name: Run Performance Tests
       run: |
-        # List available executables for debugging
-        Get-ChildItem -Path "." -Recurse -Depth 3 -Include "*.exe" | ForEach-Object { Write-Host "Found executable: $($_.FullName)" }
+        # Show current directory and structure for debugging
+        Write-Host "Current directory: $(Get-Location)" -ForegroundColor Yellow
+        Write-Host "Directory structure:" -ForegroundColor Yellow
+        Get-ChildItem -Path "." -Directory | ForEach-Object { Write-Host "  - $($_.FullName)" }
+
+        # List all executables for debugging
+        Write-Host "All executables:" -ForegroundColor Yellow
+        Get-ChildItem -Path "." -Recurse -Depth 4 -Include "*.exe" | ForEach-Object { Write-Host "  - $($_.FullName)" }
+
+        # Check specific paths
+        $PossiblePaths = @(
+            "./build/Release/EACopy.exe",
+            "./build_Release/Release/EACopy.exe",
+            "./Release/EACopy.exe",
+            "./build/Debug/EACopy.exe",
+            "./build_Debug/Debug/EACopy.exe",
+            "./Debug/EACopy.exe"
+        )
+
+        Write-Host "Checking specific paths:" -ForegroundColor Yellow
+        foreach ($Path in $PossiblePaths) {
+            $Exists = Test-Path $Path
+            Write-Host "  - $Path : $($Exists ? 'EXISTS' : 'NOT FOUND')"
+
+            if ($Exists) {
+                $FoundPath = $Path
+                Write-Host "Found EACopy at: $FoundPath" -ForegroundColor Green
+                break
+            }
+        }
+
+        # Use the found path or try to find it dynamically
+        if ($FoundPath) {
+            $EACopyPath = $FoundPath
+        } else {
+            $EACopyPath = (Get-ChildItem -Path "." -Recurse -Depth 4 -Include "EACopy.exe" | Select-Object -First 1).FullName
+            if ($EACopyPath) {
+                Write-Host "Dynamically found EACopy at: $EACopyPath" -ForegroundColor Green
+            } else {
+                Write-Host "Could not find EACopy.exe anywhere!" -ForegroundColor Red
+                exit 1
+            }
+        }
 
         # Run performance tests with smaller file counts for CI
-        # Explicitly specify the path to EACopy.exe in CI environment
-        ./scripts/performance_test.ps1 -EACopyPath "./build/Release/EACopy.exe" -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
+        ./scripts/performance_test.ps1 -EACopyPath $EACopyPath -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
 
     - name: Generate Performance Trends
       run: |
