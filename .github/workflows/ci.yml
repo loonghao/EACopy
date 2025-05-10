@@ -14,7 +14,7 @@ jobs:
         config: [Debug, Release]
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v2
       with:
         submodules: recursive
 
@@ -47,7 +47,7 @@ jobs:
         ./${{ matrix.config }}/EACopyService.exe --help || (echo "EACopyService executable failed to run with --help flag" && exit 1)
 
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v2
       with:
         name: EACopy-${{ matrix.config }}
         path: |
