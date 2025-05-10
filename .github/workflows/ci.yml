@@ -139,10 +139,19 @@ jobs:
             }
         }
 
+        # Create necessary directories first
+        New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
+        New-Item -ItemType Directory -Force -Path "./performance_history" | Out-Null
+        New-Item -ItemType Directory -Force -Path "./performance_trends" | Out-Null
+
         # Run performance tests with minimal file counts and sizes for CI
         # Set a timeout to prevent the test from running too long
         $job = Start-Job -ScriptBlock {
             param($EACopyPath, $CommitId)
+            # Create test directory inside the job too
+            New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
+            New-Item -ItemType Directory -Force -Path "./performance_history" | Out-Null
+
             ./scripts/performance_test.ps1 -EACopyPath $EACopyPath -TestDir "./perf_test" -SmallFileCount 20 -SmallFileSize 1KB -MediumFileCount 5 -MediumFileSize 100KB -LargeFileCount 2 -LargeFileSize 1MB -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId $CommitId
         } -ArgumentList $EACopyPath, "${{ steps.get_commit.outputs.commit_id }}"
 
@@ -156,7 +165,16 @@ jobs:
 
             # Create a minimal performance report
             $MinimalReport = "## EACopy vs Robocopy Performance Test Results`n`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.`n`n### Test Configuration (Minimal)`n- Small Files: 20 files of 1KB each`n- Medium Files: 5 files of 100KB each`n- Large Files: 2 files of 1MB each"
+
+            # Ensure directory exists before writing file
+            New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
             $MinimalReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8
+
+            # Create empty JSON file for compatibility with other steps
+            @{
+                TestDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                TestResults = @()
+            } | ConvertTo-Json -Depth 5 | Out-File -FilePath "./perf_test/performance_results.json" -Encoding utf8
         }
         Remove-Job $job -Force
 
