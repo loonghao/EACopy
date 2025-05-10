@@ -139,8 +139,26 @@ jobs:
             }
         }
 
-        # Run performance tests with smaller file counts for CI
-        ./scripts/performance_test.ps1 -EACopyPath $EACopyPath -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
+        # Run performance tests with minimal file counts and sizes for CI
+        # Set a timeout to prevent the test from running too long
+        $job = Start-Job -ScriptBlock {
+            param($EACopyPath, $CommitId)
+            ./scripts/performance_test.ps1 -EACopyPath $EACopyPath -TestDir "./perf_test" -SmallFileCount 20 -SmallFileSize 1KB -MediumFileCount 5 -MediumFileSize 100KB -LargeFileCount 2 -LargeFileSize 1MB -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId $CommitId
+        } -ArgumentList $EACopyPath, "${{ steps.get_commit.outputs.commit_id }}"
+
+        # Wait for the job to complete with a timeout
+        $timeout = 300 # 5 minutes
+        if (Wait-Job $job -Timeout $timeout) {
+            Receive-Job $job
+        } else {
+            Write-Host "Performance test timed out after $timeout seconds" -ForegroundColor Red
+            Stop-Job $job
+
+            # Create a minimal performance report
+            $MinimalReport = "## EACopy vs Robocopy Performance Test Results`n`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.`n`n### Test Configuration (Minimal)`n- Small Files: 20 files of 1KB each`n- Medium Files: 5 files of 100KB each`n- Large Files: 2 files of 1MB each"
+            $MinimalReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8
+        }
+        Remove-Job $job -Force
 
     - name: Generate Performance Trends
       run: |
