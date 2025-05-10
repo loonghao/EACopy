@@ -7,6 +7,11 @@
 #include "EACopyDependencies.h"
 #include <winsock2.h>
 
+// Define MSG_WAITALL if not already defined (needed for Windows)
+#if defined(_WIN32) && !defined(MSG_WAITALL)
+#define MSG_WAITALL 0x8 // Wait for all data to arrive
+#endif
+
 namespace eacopy
 {
 

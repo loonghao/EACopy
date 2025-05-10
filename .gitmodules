@@ -1,6 +1,6 @@
 [submodule "external/zstd"]
 	path = external/zstd
-	url = https://github.com/facebook/zstd.git
+	url = git@github.com:facebook/zstd.git
 [submodule "external/lzma"]
 	path = external/lzma
 	url = https://github.com/chemfiles/lzma.git

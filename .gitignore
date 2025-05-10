@@ -50,6 +50,7 @@ CMakeSettings.json
 *.vcxproj
 *.vcxproj.filters
 *.sln
+*.idea
 
 #Exclude files in the config directories
 Release/
