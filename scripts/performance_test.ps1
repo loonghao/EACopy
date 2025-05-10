@@ -160,7 +160,7 @@ function Run-TestScenario {
     $FasterTool = if ($EACopyResult.ElapsedSeconds -lt $RobocopyResult.ElapsedSeconds) { "EACopy" } else { "Robocopy" }
 
     # Print results
-    Write-Host "`nResults for $ScenarioName:" -ForegroundColor Green
+    Write-Host "`nResults for ${ScenarioName}:" -ForegroundColor Green
     Write-Host "EACopy: $($EACopyResult.ElapsedSeconds) seconds, $($EACopyResult.ThroughputMBps) MB/s"
     Write-Host "Robocopy: $($RobocopyResult.ElapsedSeconds) seconds, $($RobocopyResult.ThroughputMBps) MB/s"
     Write-Host "Difference: $TimeDiff seconds ($TimeDiffPercent%), $ThroughputDiff MB/s ($ThroughputDiffPercent%)"
