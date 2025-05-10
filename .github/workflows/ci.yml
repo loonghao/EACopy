@@ -100,7 +100,7 @@ jobs:
 
         # Run performance tests with smaller file counts for CI
         # Explicitly specify the path to EACopy.exe in CI environment
-        ./scripts/performance_test.ps1 -EACopyPath "./Release/EACopy.exe" -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
+        ./scripts/performance_test.ps1 -EACopyPath "./build/Release/EACopy.exe" -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
 
     - name: Generate Performance Trends
       run: |
