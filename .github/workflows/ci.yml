@@ -1,8 +1,8 @@
 name: CI
 
+# This workflow is triggered only on pull requests to the master branch
+# Its main purpose is to verify that builds from other developers work correctly
 on:
-  push:
-    branches: [ master ]
   pull_request:
     branches: [ master ]
 
@@ -12,26 +12,26 @@ jobs:
     strategy:
       matrix:
         config: [Debug, Release]
-    
+
     steps:
     - uses: actions/checkout@v3
       with:
         submodules: recursive
-    
+
     - name: Setup ccache
       uses: hendrikmuhs/ccache-action@v1.2
-    
+
     - name: Configure CMake
       run: |
         mkdir build_${{ matrix.config }}
         cd build_${{ matrix.config }}
         cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON
-    
+
     - name: Build
       run: |
         cd build_${{ matrix.config }}
         cmake --build . --config ${{ matrix.config }}
-    
+
     - name: Test
       run: |
         cd build_${{ matrix.config }}/test
