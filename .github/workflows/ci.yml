@@ -32,7 +32,16 @@ jobs:
         cd build_${{ matrix.config }}
         cmake --build . --config ${{ matrix.config }}
 
-    - name: Test
+    - name: Run Unit Tests
       run: |
         cd build_${{ matrix.config }}/test
         ctest -C ${{ matrix.config }} -V
+
+    - name: Verify Executable Functionality
+      run: |
+        # Test if EACopy executable works with --help flag
+        cd build_${{ matrix.config }}
+        ./${{ matrix.config }}/EACopy.exe --help || (echo "EACopy executable failed to run with --help flag" && exit 1)
+
+        # Test if EACopyService executable works with --help flag (Windows only)
+        ./${{ matrix.config }}/EACopyService.exe --help || (echo "EACopyService executable failed to run with --help flag" && exit 1)
