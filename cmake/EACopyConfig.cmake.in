@@ -1,0 +1,14 @@
+@PACKAGE_INIT@
+
+# Include targets file
+include("${CMAKE_CURRENT_LIST_DIR}/EACopyTargets.cmake")
+
+# Define exported targets
+set(EACOPY_LIBRARIES EACopy::EACopyLib)
+set(EACOPY_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/eacopy")
+
+# Check dependencies
+include(CMakeFindDependencyMacro)
+
+# Set package found flag
+set(EACOPY_FOUND TRUE)
