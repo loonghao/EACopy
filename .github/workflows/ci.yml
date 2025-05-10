@@ -14,18 +14,19 @@ jobs:
         config: [Debug, Release]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - name: Setup ccache
-      uses: hendrikmuhs/ccache-action@v1.2
+      uses: hendrikmuhs/ccache-action@v1.2.11
 
     - name: Configure CMake
       run: |
         mkdir build_${{ matrix.config }}
         cd build_${{ matrix.config }}
-        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON
+        # Add MSG_WAITALL definition for Windows platform
+        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8"
 
     - name: Build
       run: |
@@ -39,18 +40,98 @@ jobs:
 
     - name: Verify Executable Functionality
       run: |
-        # Test if EACopy executable works with --help flag
+        # Test if EACopy executable works with help flag
         cd build_${{ matrix.config }}
-        ./${{ matrix.config }}/EACopy.exe --help || (echo "EACopy executable failed to run with --help flag" && exit 1)
+        ./${{ matrix.config }}/EACopy.exe --help || ./${{ matrix.config }}/EACopy.exe /? || (echo "EACopy executable failed to run with help flag" && exit 1)
 
-        # Test if EACopyService executable works with --help flag (Windows only)
-        ./${{ matrix.config }}/EACopyService.exe --help || (echo "EACopyService executable failed to run with --help flag" && exit 1)
+        # Test if EACopyService executable works with help flag (Windows only)
+        ./${{ matrix.config }}/EACopyService.exe /? || (echo "EACopyService executable failed to run with help flag" && exit 1)
 
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: EACopy-${{ matrix.config }}
         path: |
           build_${{ matrix.config }}/${{ matrix.config }}/*.exe
           build_${{ matrix.config }}/${{ matrix.config }}/*.dll
         if-no-files-found: error
+
+  performance-test:
+    needs: build
+    runs-on: windows-latest
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'master'
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0  # Fetch all history for commit info
+
+    - name: Download Release Build
+      uses: actions/download-artifact@v4
+      with:
+        name: EACopy-Release
+        path: ./Release
+
+    - name: Download Previous Performance History
+      uses: actions/cache@v3
+      with:
+        path: ./performance_history
+        key: performance-history-${{ github.run_id }}
+        restore-keys: |
+          performance-history-
+
+    - name: Create Directories
+      run: |
+        mkdir -p perf_test
+        mkdir -p performance_history
+        mkdir -p performance_trends
+
+    - name: Get Commit ID
+      id: get_commit
+      run: |
+        $CommitId = git rev-parse --short HEAD
+        echo "commit_id=$CommitId" >> $env:GITHUB_OUTPUT
+
+    - name: Run Performance Tests
+      run: |
+        # Run performance tests with smaller file counts for CI
+        ./scripts/performance_test.ps1 -EACopyPath "./Release/EACopy.exe" -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
+
+    - name: Generate Performance Trends
+      run: |
+        ./scripts/generate_performance_trends.ps1 -HistoryDir "./performance_history" -OutputDir "./performance_trends"
+
+    - name: Post Performance Results to PR
+      if: success()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Post both the current test results and a link to the trends visualization
+        $CurrentResults = Get-Content -Path "./perf_test/performance_results.md" -Raw
+        $TrendsSummary = ""
+        if (Test-Path "./performance_trends/performance_summary.md") {
+            $TrendsSummary = Get-Content -Path "./performance_trends/performance_summary.md" -Raw
+        }
+
+        $CombinedReport = $CurrentResults + "`n`n" + $TrendsSummary
+        $CombinedReport | Out-File -FilePath "./perf_test/combined_results.md" -Encoding utf8
+
+        ./scripts/post_performance_results.ps1 -MarkdownReportPath "./perf_test/combined_results.md" -GithubToken $env:GITHUB_TOKEN -RepoOwner ${{ github.repository_owner }} -RepoName ${{ github.event.repository.name }} -PrNumber ${{ github.event.pull_request.number }}
+
+    - name: Upload Performance Test Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-test-results
+        path: |
+          ./perf_test
+          ./performance_trends
+        if-no-files-found: warn
+
+    - name: Cache Performance History
+      uses: actions/cache@v3
+      with:
+        path: ./performance_history
+        key: performance-history-${{ github.run_id }}
+        restore-keys: |
+          performance-history-

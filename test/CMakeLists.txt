@@ -1,7 +1,7 @@
 #-------------------------------------------------------------------------------------------
 # Copyright (C) Electronic Arts Inc.  All rights reserved.
 #-------------------------------------------------------------------------------------------
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.5)
 project(EACopyTest CXX)
 
 include(CTest)
@@ -28,7 +28,7 @@ add_executable(EACopyTest
 target_include_directories(EACopyTest PUBLIC ../include)
 
 #-------------------------------------------------------------------------------------------
-# Dependencies 
+# Dependencies
 #-------------------------------------------------------------------------------------------
 target_link_libraries(EACopyTest ${EACOPY_EXTERNAL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
 
