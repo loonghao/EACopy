@@ -186,6 +186,7 @@ try {
     # Auto-detect EACopy.exe if path not provided
     if (-not $EACopyPath) {
         $PossiblePaths = @(
+            # Local development paths
             ".\Release\EACopy.exe",
             ".\Debug\EACopy.exe",
             "..\Release\EACopy.exe",
@@ -193,7 +194,18 @@ try {
             ".\build_Release\Release\EACopy.exe",
             ".\build_Debug\Debug\EACopy.exe",
             "..\build_Release\Release\EACopy.exe",
-            "..\build_Debug\Debug\EACopy.exe"
+            "..\build_Debug\Debug\EACopy.exe",
+
+            # CI environment paths
+            "$PSScriptRoot\..\Release\EACopy.exe",
+            "$PSScriptRoot\..\Debug\EACopy.exe",
+            "$PSScriptRoot\..\build_Release\Release\EACopy.exe",
+            "$PSScriptRoot\..\build_Debug\Debug\EACopy.exe",
+
+            # Additional CI paths
+            ".\EACopy-Release\EACopy.exe",
+            ".\Release\EACopy.exe",
+            ".\Debug\EACopy.exe"
         )
 
         foreach ($Path in $PossiblePaths) {
@@ -207,6 +219,12 @@ try {
 
     # Check if EACopy executable exists
     if (-not $EACopyPath -or -not (Test-Path $EACopyPath)) {
+        # Print current directory and environment info for debugging
+        Write-Host "Current directory: $(Get-Location)" -ForegroundColor Yellow
+        Write-Host "Script directory: $PSScriptRoot" -ForegroundColor Yellow
+        Write-Host "Directory contents:" -ForegroundColor Yellow
+        Get-ChildItem -Path "." -Recurse -Depth 2 -Include "*.exe" | ForEach-Object { Write-Host "  - $($_.FullName)" }
+
         Write-Error "EACopy executable not found. Please provide the correct path using the -EACopyPath parameter."
         Write-Host "Tried the following paths:" -ForegroundColor Red
         foreach ($Path in $PossiblePaths) {
