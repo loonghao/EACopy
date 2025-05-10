@@ -4,7 +4,7 @@
 
 #include <EACopyDelta.h>
 #define ZSTD_STATIC_LINKING_ONLY
-#include "../external/zstd/lib/zstd.h"
+#include "EACopyDependencies.h"
 #include <winsock2.h>
 
 namespace eacopy

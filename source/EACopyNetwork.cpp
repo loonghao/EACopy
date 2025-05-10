@@ -24,7 +24,7 @@
 #endif
 
 #define ZSTD_STATIC_LINKING_ONLY
-#include "../external/zstd/lib/zstd.h"
+#include "EACopyDependencies.h"
 
 #if defined(_WIN32)
 #else
@@ -79,11 +79,11 @@ bool isLocalHost(const wchar_t* hostname, WString& outIp)
 
 	freeAddrInfo(hostaddr);
 	freeAddrInfo(localaddr);
-	
+
 	#if defined(_WIN32)
 	WSACleanup();
 	#endif
-	
+
 	return isLocal;
 }
 

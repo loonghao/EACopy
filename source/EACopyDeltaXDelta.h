@@ -3,7 +3,7 @@
 #if defined(EACOPY_ALLOW_DELTA_COPY)
 
 #include <EACopyDelta.h>
-#include <xdelta3.h>
+#include "EACopyDependencies.h"
 
 namespace eacopy
 {
