@@ -45,3 +45,12 @@ jobs:
 
         # Test if EACopyService executable works with --help flag (Windows only)
         ./${{ matrix.config }}/EACopyService.exe --help || (echo "EACopyService executable failed to run with --help flag" && exit 1)
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: EACopy-${{ matrix.config }}
+        path: |
+          build_${{ matrix.config }}/${{ matrix.config }}/*.exe
+          build_${{ matrix.config }}/${{ matrix.config }}/*.dll
+        if-no-files-found: error
