@@ -3,7 +3,7 @@
 
 # Parameters
 param (
-    [string]$EACopyPath = ".\Release\EACopy.exe",
+    [string]$EACopyPath = "",  # Empty by default, will auto-detect
     [string]$TestDir = ".\perf_test",
     [int]$SmallFileCount = 1000,
     [int]$SmallFileSize = 10KB,
@@ -182,6 +182,39 @@ function Run-TestScenario {
 # Main test execution
 try {
     Write-Host "Starting performance tests for EACopy vs Robocopy" -ForegroundColor Yellow
+
+    # Auto-detect EACopy.exe if path not provided
+    if (-not $EACopyPath) {
+        $PossiblePaths = @(
+            ".\Release\EACopy.exe",
+            ".\Debug\EACopy.exe",
+            "..\Release\EACopy.exe",
+            "..\Debug\EACopy.exe",
+            ".\build_Release\Release\EACopy.exe",
+            ".\build_Debug\Debug\EACopy.exe",
+            "..\build_Release\Release\EACopy.exe",
+            "..\build_Debug\Debug\EACopy.exe"
+        )
+
+        foreach ($Path in $PossiblePaths) {
+            if (Test-Path $Path) {
+                $EACopyPath = $Path
+                Write-Host "Auto-detected EACopy at: $EACopyPath" -ForegroundColor Green
+                break
+            }
+        }
+    }
+
+    # Check if EACopy executable exists
+    if (-not $EACopyPath -or -not (Test-Path $EACopyPath)) {
+        Write-Error "EACopy executable not found. Please provide the correct path using the -EACopyPath parameter."
+        Write-Host "Tried the following paths:" -ForegroundColor Red
+        foreach ($Path in $PossiblePaths) {
+            Write-Host "  - $Path" -ForegroundColor Red
+        }
+        exit 1
+    }
+
     Write-Host "EACopy path: $EACopyPath"
     Write-Host "Test directory: $TestDir"
 

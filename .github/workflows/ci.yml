@@ -96,7 +96,7 @@ jobs:
     - name: Run Performance Tests
       run: |
         # Run performance tests with smaller file counts for CI
-        ./scripts/performance_test.ps1 -EACopyPath "./Release/EACopy.exe" -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
+        ./scripts/performance_test.ps1 -TestDir "./perf_test" -SmallFileCount 100 -MediumFileCount 20 -LargeFileCount 5 -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId "${{ steps.get_commit.outputs.commit_id }}"
 
     - name: Generate Performance Trends
       run: |
