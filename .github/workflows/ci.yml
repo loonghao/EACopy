@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        config: [Debug, Release]
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+    
+    - name: Configure CMake
+      run: |
+        mkdir build_${{ matrix.config }}
+        cd build_${{ matrix.config }}
+        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON
+    
+    - name: Build
+      run: |
+        cd build_${{ matrix.config }}
+        cmake --build . --config ${{ matrix.config }}
+    
+    - name: Test
+      run: |
+        cd build_${{ matrix.config }}/test
+        ctest -C ${{ matrix.config }} -V
