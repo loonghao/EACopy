@@ -163,17 +163,97 @@ jobs:
             Write-Host "Performance test timed out after $timeout seconds" -ForegroundColor Red
             Stop-Job $job
 
-            # Create a minimal performance report
-            $MinimalReport = "## EACopy vs Robocopy Performance Test Results`n`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.`n`n### Test Configuration (Minimal)`n- Small Files: 20 files of 1KB each`n- Medium Files: 5 files of 100KB each`n- Large Files: 2 files of 1MB each"
+            # Create a more detailed performance report even when timeout occurs
+            # Run a simplified version of the test with even smaller file counts
+            Write-Host "Running simplified performance test after timeout..."
+
+            # Create minimal test files directly
+            $SourceDir = "./perf_test/source"
+            $DestDir1 = "./perf_test/dest_eacopy"
+            $DestDir2 = "./perf_test/dest_robocopy"
+
+            New-Item -ItemType Directory -Force -Path $SourceDir | Out-Null
+            New-Item -ItemType Directory -Force -Path $DestDir1 | Out-Null
+            New-Item -ItemType Directory -Force -Path $DestDir2 | Out-Null
+
+            # Create just a few small test files
+            $SmallFileCount = 5
+            $SmallFileSize = 1KB
+
+            Write-Host "Creating $SmallFileCount small test files..."
+            for ($i = 1; $i -le $SmallFileCount; $i++) {
+                $FilePath = Join-Path $SourceDir "small_file_$i.dat"
+                $Buffer = New-Object byte[] $SmallFileSize
+                (New-Object Random).NextBytes($Buffer)
+                [System.IO.File]::WriteAllBytes($FilePath, $Buffer)
+            }
+
+            # Measure EACopy performance
+            Write-Host "Testing EACopy performance..."
+            $EACopyStopWatch = [System.Diagnostics.Stopwatch]::StartNew()
+            & $EACopyPath $SourceDir $DestDir1 | Out-Null
+            $EACopyStopWatch.Stop()
+            $EACopyTime = $EACopyStopWatch.Elapsed.TotalSeconds
+
+            # Measure Robocopy performance
+            Write-Host "Testing Robocopy performance..."
+            $RobocopyStopWatch = [System.Diagnostics.Stopwatch]::StartNew()
+            & robocopy $SourceDir $DestDir2 /E | Out-Null
+            $RobocopyStopWatch.Stop()
+            $RobocopyTime = $RobocopyStopWatch.Elapsed.TotalSeconds
+
+            # Calculate difference
+            $TimeDiff = $RobocopyTime - $EACopyTime
+            $TimeDiffPercent = if ($RobocopyTime -gt 0) {
+                [Math]::Round(($TimeDiff / $RobocopyTime) * 100, 2)
+            } else {
+                0
+            }
+
+            $FasterTool = if ($EACopyTime -lt $RobocopyTime) { "EACopy" } else { "Robocopy" }
+
+            # Create the report content
+            $ReportTitle = "## EACopy vs Robocopy Performance Test Results"
+            $TimeoutInfo = "The full test timed out after $timeout seconds, but a simplified test was completed."
+            $ResultsHeader = "### Simplified Test Results"
+
+            $EACopyTimeRounded = [Math]::Round($EACopyTime, 2)
+            $RobocopyTimeRounded = [Math]::Round($RobocopyTime, 2)
+            $TimeDiffRounded = [Math]::Round($TimeDiff, 2)
+
+            $MinimalReport = "$ReportTitle`n`n$TimeoutInfo`n`n$ResultsHeader`n"
+            $MinimalReport += "| Tool | Time (seconds) |`n"
+            $MinimalReport += "|------|---------------|`n"
+            $MinimalReport += "| EACopy | $EACopyTimeRounded |`n"
+            $MinimalReport += "| Robocopy | $RobocopyTimeRounded |`n"
+            $MinimalReport += "| Difference | $TimeDiffRounded ($TimeDiffPercent%) |`n"
+            $MinimalReport += "| Faster Tool | $FasterTool |`n`n"
+            $MinimalReport += "### Test Configuration (Minimal)`n"
+            $MinimalReport += "- Small Files: $SmallFileCount files of $SmallFileSize each"
 
             # Ensure directory exists before writing file
             New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
             $MinimalReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8
 
-            # Create empty JSON file for compatibility with other steps
+            # Create JSON file with the simplified test results
             @{
                 TestDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                TestResults = @()
+                TestResults = @(
+                    @{
+                        ScenarioName = "Simplified Test"
+                        EACopy = @{
+                            ElapsedSeconds = [Math]::Round($EACopyTime, 2)
+                            ThroughputMBps = 0
+                        }
+                        Robocopy = @{
+                            ElapsedSeconds = [Math]::Round($RobocopyTime, 2)
+                            ThroughputMBps = 0
+                        }
+                        TimeDiff = [Math]::Round($TimeDiff, 2)
+                        TimeDiffPercent = $TimeDiffPercent
+                        FasterTool = $FasterTool
+                    }
+                )
             } | ConvertTo-Json -Depth 5 | Out-File -FilePath "./perf_test/performance_results.json" -Encoding utf8
         }
         Remove-Job $job -Force
