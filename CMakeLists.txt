@@ -156,6 +156,7 @@ if(NOT EACOPY_USE_SYSTEM_XDELTA)
 endif()
 
 target_include_directories(EACopy PUBLIC ${EACOPY_INCLUDE_DIRS})
+target_compile_definitions(EACopy PRIVATE _HAS_EXCEPTIONS=0)
 
 if (WIN32)
 	target_link_libraries(EACopy ${EACOPY_EXTERNAL_LIBS})
@@ -173,6 +174,7 @@ if (WIN32)
 		${EACOPY_SHARED_FILES})
 
 	target_include_directories(EACopyService PUBLIC ${EACOPY_INCLUDE_DIRS})
+	target_compile_definitions(EACopyService PRIVATE _HAS_EXCEPTIONS=0)
 	target_link_libraries(EACopyService ${EACOPY_EXTERNAL_LIBS})
 endif(WIN32)
 
@@ -209,6 +211,7 @@ if(EACOPY_BUILD_AS_LIBRARY)
 	endif (UNIX)
 
 	# Add compile definitions
+	target_compile_definitions(EACopyLib PRIVATE _HAS_EXCEPTIONS=0)
 	target_compile_definitions(EACopyLib PUBLIC EACOPY_ALLOW_DELTA_COPY)
 endif()
 

@@ -3,7 +3,9 @@
 #pragma once
 #undef UNICODE
 #define WIN32_LEAN_AND_MEAN
+#ifndef _HAS_EXCEPTIONS
 #define _HAS_EXCEPTIONS 0
+#endif
 
 #include <functional>
 #include <list>
@@ -82,7 +84,7 @@ private:
 	u64					data[5];
 };
 
-class ScopedCriticalSection 
+class ScopedCriticalSection
 {
 public:
 	ScopedCriticalSection(CriticalSection& cs) : m_cs(cs), m_active(true) { cs.enter(); }
@@ -473,11 +475,11 @@ uint GetLastError();
 #define MAX_PATH 260
 #define _wcsicmp wcscasecmp
 #define _wcsnicmp wcsncasecmp
-#define FILE_ATTRIBUTE_READONLY             0x00000001  
-#define FILE_ATTRIBUTE_HIDDEN               0x00000002  
-#define FILE_ATTRIBUTE_DIRECTORY            0x00000010  
-#define FILE_ATTRIBUTE_NORMAL               0x00000080  
-#define FILE_ATTRIBUTE_REPARSE_POINT        0x00000400  
+#define FILE_ATTRIBUTE_READONLY             0x00000001
+#define FILE_ATTRIBUTE_HIDDEN               0x00000002
+#define FILE_ATTRIBUTE_DIRECTORY            0x00000010
+#define FILE_ATTRIBUTE_NORMAL               0x00000080
+#define FILE_ATTRIBUTE_REPARSE_POINT        0x00000400
 #define ERROR_FILE_NOT_FOUND             2L
 #define ERROR_PATH_NOT_FOUND             3L
 #define ERROR_INVALID_HANDLE             6L
