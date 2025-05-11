@@ -93,7 +93,8 @@ jobs:
         $CommitId = git rev-parse --short HEAD
         echo "commit_id=$CommitId" >> $env:GITHUB_OUTPUT
 
-    - name: Run Performance Tests
+    - name: Find Executables
+      id: find_executables
       run: |
         # Show current directory and structure for debugging
         Write-Host "Current directory: $(Get-Location)" -ForegroundColor Yellow
@@ -104,53 +105,102 @@ jobs:
         Write-Host "All executables:" -ForegroundColor Yellow
         Get-ChildItem -Path "." -Recurse -Depth 4 -Include "*.exe" | ForEach-Object { Write-Host "  - $($_.FullName)" }
 
-        # Check specific paths
+        # Find EACopy and EACopyService executables
+        $Executables = @{
+            "EACopy" = $null
+            "EACopyService" = $null
+        }
+
         $PossiblePaths = @(
-            "./build/Release/EACopy.exe",
-            "./build_Release/Release/EACopy.exe",
-            "./Release/EACopy.exe",
-            "./build/Debug/EACopy.exe",
-            "./build_Debug/Debug/EACopy.exe",
-            "./Debug/EACopy.exe"
+            "./build/Release/{0}.exe",
+            "./build_Release/Release/{0}.exe",
+            "./Release/{0}.exe",
+            "./build/Debug/{0}.exe",
+            "./build_Debug/Debug/{0}.exe",
+            "./Debug/{0}.exe"
         )
 
-        Write-Host "Checking specific paths:" -ForegroundColor Yellow
-        foreach ($Path in $PossiblePaths) {
-            $Exists = Test-Path $Path
-            Write-Host "  - $Path : $($Exists ? 'EXISTS' : 'NOT FOUND')"
+        foreach ($Executable in $Executables.Keys) {
+            $FoundPath = $null
+            Write-Host "Checking specific paths for $Executable:" -ForegroundColor Yellow
 
-            if ($Exists) {
-                $FoundPath = $Path
-                Write-Host "Found EACopy at: $FoundPath" -ForegroundColor Green
-                break
+            foreach ($PathTemplate in $PossiblePaths) {
+                $Path = $PathTemplate -f $Executable
+                $Exists = Test-Path $Path
+                Write-Host "  - $Path : $($Exists ? 'EXISTS' : 'NOT FOUND')"
+
+                if ($Exists) {
+                    $FoundPath = $Path
+                    Write-Host "Found $Executable at: $FoundPath" -ForegroundColor Green
+                    break
+                }
             }
-        }
 
-        # Use the found path or try to find it dynamically
-        if ($FoundPath) {
-            $EACopyPath = $FoundPath
-        } else {
-            $EACopyPath = (Get-ChildItem -Path "." -Recurse -Depth 4 -Include "EACopy.exe" | Select-Object -First 1).FullName
-            if ($EACopyPath) {
-                Write-Host "Dynamically found EACopy at: $EACopyPath" -ForegroundColor Green
+            # Use the found path or try to find it dynamically
+            if ($FoundPath) {
+                $Executables[$Executable] = $FoundPath
             } else {
-                Write-Host "Could not find EACopy.exe anywhere!" -ForegroundColor Red
-                exit 1
+                $DynamicPath = (Get-ChildItem -Path "." -Recurse -Depth 4 -Include "$Executable.exe" | Select-Object -First 1).FullName
+                if ($DynamicPath) {
+                    $Executables[$Executable] = $DynamicPath
+                    Write-Host "Dynamically found $Executable at: $DynamicPath" -ForegroundColor Green
+                } else {
+                    Write-Host "Could not find $Executable.exe anywhere!" -ForegroundColor Red
+                    if ($Executable -eq "EACopy") {
+                        exit 1  # EACopy is required
+                    }
+                }
             }
         }
 
-        # Create necessary directories first
-        New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
-        New-Item -ItemType Directory -Force -Path "./performance_history" | Out-Null
-        New-Item -ItemType Directory -Force -Path "./performance_trends" | Out-Null
+        # Set outputs for use in other steps
+        "EACOPY_PATH=$($Executables['EACopy'])" >> $env:GITHUB_OUTPUT
+        "EACOPYSERVICE_PATH=$($Executables['EACopyService'])" >> $env:GITHUB_OUTPUT
+
+        # Store for use in this step
+        $EACopyPath = $Executables['EACopy']
+        $EACopyServicePath = $Executables['EACopyService']
+
+    - name: Run Performance Tests
+      run: |
+        # Use the executable paths from the previous step
+        $EACopyPath = "${{ steps.find_executables.outputs.EACOPY_PATH }}"
+
+        # Create necessary directories first (with better error handling)
+        $DirectoriesToCreate = @("./perf_test", "./performance_history", "./performance_trends")
+        foreach ($Dir in $DirectoriesToCreate) {
+            if (-not (Test-Path $Dir)) {
+                Write-Host "Creating directory: $Dir" -ForegroundColor Yellow
+                try {
+                    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+                } catch {
+                    Write-Host "Warning: Failed to create directory $Dir - $_" -ForegroundColor Yellow
+                    # Continue anyway, as the directory might be created by another process
+                }
+            } else {
+                Write-Host "Directory already exists: $Dir" -ForegroundColor Gray
+            }
+        }
 
         # Run performance tests with minimal file counts and sizes for CI
         # Set a timeout to prevent the test from running too long
         $job = Start-Job -ScriptBlock {
             param($EACopyPath, $CommitId)
-            # Create test directory inside the job too
-            New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
-            New-Item -ItemType Directory -Force -Path "./performance_history" | Out-Null
+            # Create test directory inside the job too (with better error handling)
+            $DirectoriesToCreate = @("./perf_test", "./performance_history")
+            foreach ($Dir in $DirectoriesToCreate) {
+                if (-not (Test-Path $Dir)) {
+                    Write-Host "Creating directory in job: $Dir"
+                    try {
+                        New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+                    } catch {
+                        Write-Host "Warning: Failed to create directory in job $Dir - $_"
+                        # Continue anyway
+                    }
+                } else {
+                    Write-Host "Directory in job already exists: $Dir"
+                }
+            }
 
             ./scripts/performance_test.ps1 -EACopyPath $EACopyPath -TestDir "./perf_test" -SmallFileCount 20 -SmallFileSize 1KB -MediumFileCount 5 -MediumFileSize 100KB -LargeFileCount 2 -LargeFileSize 1MB -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId $CommitId
         } -ArgumentList $EACopyPath, "${{ steps.get_commit.outputs.commit_id }}"
@@ -164,23 +214,37 @@ jobs:
             Stop-Job $job
 
             # Create a minimal performance report
-            $MinimalReport = "## EACopy vs Robocopy Performance Test Results`n`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.`n`n### Test Configuration (Minimal)`n- Small Files: 20 files of 1KB each`n- Medium Files: 5 files of 100KB each`n- Large Files: 2 files of 1MB each"
-
-            # Ensure directory exists before writing file
-            New-Item -ItemType Directory -Force -Path "./perf_test" | Out-Null
-            $MinimalReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8
-
-            # Create empty JSON file for compatibility with other steps
-            @{
-                TestDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                TestResults = @()
-            } | ConvertTo-Json -Depth 5 | Out-File -FilePath "./perf_test/performance_results.json" -Encoding utf8
+            $MinimalReport = "## EACopy vs Robocopy Performance Test Results\`n\`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.\`n\`n### Test Configuration (Minimal)\`n- Small Files: 20 files of 1KB each\`n- Medium Files: 5 files of 100KB each\`n- Large Files: 2 files of 1MB each"
         }
         Remove-Job $job -Force
 
     - name: Generate Performance Trends
       run: |
-        ./scripts/generate_performance_trends.ps1 -HistoryDir "./performance_history" -OutputDir "./performance_trends"
+        # Ensure directories exist before running script
+        $TrendsDirectories = @("./performance_history", "./performance_trends")
+        foreach ($Dir in $TrendsDirectories) {
+            if (-not (Test-Path $Dir)) {
+                Write-Host "Creating trends directory: $Dir" -ForegroundColor Yellow
+                try {
+                    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+                    Write-Host "Created trends directory: $Dir" -ForegroundColor Green
+                } catch {
+                    Write-Host "Warning: Failed to create trends directory $Dir - $_" -ForegroundColor Red
+                }
+            } else {
+                Write-Host "Trends directory already exists: $Dir" -ForegroundColor Gray
+            }
+        }
+
+        # Run the script with explicit error handling
+        try {
+            Write-Host "Running generate_performance_trends.ps1..." -ForegroundColor Yellow
+            ./scripts/generate_performance_trends.ps1 -HistoryDir "./performance_history" -OutputDir "./performance_trends" -ErrorAction Stop
+            Write-Host "Successfully generated performance trends" -ForegroundColor Green
+        } catch {
+            Write-Host "Warning: Failed to generate performance trends - $_" -ForegroundColor Red
+            # Continue anyway, as this is not critical
+        }
 
     - name: Post Performance Results to PR
       if: success()
@@ -188,24 +252,123 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         # Post both the current test results and a link to the trends visualization
-        $CurrentResults = Get-Content -Path "./perf_test/performance_results.md" -Raw
-        $TrendsSummary = ""
-        if (Test-Path "./performance_trends/performance_summary.md") {
-            $TrendsSummary = Get-Content -Path "./performance_trends/performance_summary.md" -Raw
+        $CurrentResults = ""
+        $ResultsPath = "./perf_test/performance_results.md"
+
+        # Check for results in alternate locations if primary location doesn't exist
+        if (-not (Test-Path $ResultsPath)) {
+            Write-Host "Warning: Primary results file not found at $ResultsPath" -ForegroundColor Yellow
+            $AlternateLocations = @("./performance_results.md", "./perf_test/results.md")
+            foreach ($AltPath in $AlternateLocations) {
+                if (Test-Path $AltPath) {
+                    Write-Host "Found results at alternate location: $AltPath" -ForegroundColor Green
+                    $ResultsPath = $AltPath
+                    break
+                }
+            }
         }
 
-        $CombinedReport = $CurrentResults + "`n`n" + $TrendsSummary
-        $CombinedReport | Out-File -FilePath "./perf_test/combined_results.md" -Encoding utf8
+        # Read results if found
+        if (Test-Path $ResultsPath) {
+            $CurrentResults = Get-Content -Path $ResultsPath -Raw
+            Write-Host "Successfully read performance results" -ForegroundColor Green
+        } else {
+            Write-Host "Warning: No performance results found, creating minimal report" -ForegroundColor Yellow
+            $CurrentResults = "## EACopy vs Robocopy Performance Test Results`n`nNo performance data available. The test may have failed to generate results.`n"
+        }
 
-        ./scripts/post_performance_results.ps1 -MarkdownReportPath "./perf_test/combined_results.md" -GithubToken $env:GITHUB_TOKEN -RepoOwner ${{ github.repository_owner }} -RepoName ${{ github.event.repository.name }} -PrNumber ${{ github.event.pull_request.number }}
+        # Get trends summary if available
+        $TrendsSummary = ""
+        $TrendsPath = "./performance_trends/performance_summary.md"
+        if (Test-Path $TrendsPath) {
+            $TrendsSummary = Get-Content -Path $TrendsPath -Raw
+            Write-Host "Successfully read trends summary" -ForegroundColor Green
+        } else {
+            Write-Host "No trends summary found at $TrendsPath" -ForegroundColor Yellow
+        }
+
+        # Create combined report
+        $CombinedReport = $CurrentResults
+        if ($TrendsSummary) {
+            $CombinedReport += "`n`n" + $TrendsSummary
+        }
+
+        # Ensure output directory exists
+        $OutputDir = "./perf_test"
+        if (-not (Test-Path $OutputDir)) {
+            try {
+                New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+                Write-Host "Created output directory: $OutputDir" -ForegroundColor Green
+            } catch {
+                Write-Host "Failed to create output directory: $_" -ForegroundColor Red
+                $OutputDir = "."
+            }
+        }
+
+        # Write combined report
+        $CombinedReportPath = "$OutputDir/combined_results.md"
+        try {
+            $CombinedReport | Out-File -FilePath $CombinedReportPath -Encoding utf8
+            Write-Host "Wrote combined report to $CombinedReportPath" -ForegroundColor Green
+        } catch {
+            Write-Host "Failed to write combined report: $_" -ForegroundColor Red
+            $CombinedReportPath = "./combined_results.md"
+            $CombinedReport | Out-File -FilePath $CombinedReportPath -Encoding utf8
+            Write-Host "Wrote combined report to alternate location: $CombinedReportPath" -ForegroundColor Yellow
+        }
+
+        # Post results to PR
+        try {
+            Write-Host "Posting performance results to PR..." -ForegroundColor Yellow
+            ./scripts/post_performance_results.ps1 -MarkdownReportPath $CombinedReportPath -GithubToken $env:GITHUB_TOKEN -RepoOwner ${{ github.repository_owner }} -RepoName ${{ github.event.repository.name }} -PrNumber ${{ github.event.pull_request.number }}
+            Write-Host "Successfully posted results to PR" -ForegroundColor Green
+        } catch {
+            Write-Host "Failed to post results to PR: $_" -ForegroundColor Red
+        }
+
+    - name: Prepare Artifacts for Upload
+      run: |
+        # Create a directory for all artifacts
+        $ArtifactsDir = "./artifacts"
+        New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null
+
+        # Copy performance test results if they exist
+        if (Test-Path "./perf_test") {
+            Write-Host "Copying perf_test directory to artifacts" -ForegroundColor Yellow
+            Copy-Item -Path "./perf_test" -Destination "$ArtifactsDir/perf_test" -Recurse -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "perf_test directory not found, creating placeholder" -ForegroundColor Yellow
+            New-Item -ItemType Directory -Path "$ArtifactsDir/perf_test" -Force | Out-Null
+            "No performance test results were generated." | Out-File -FilePath "$ArtifactsDir/perf_test/info.txt"
+        }
+
+        # Copy performance trends if they exist
+        if (Test-Path "./performance_trends") {
+            Write-Host "Copying performance_trends directory to artifacts" -ForegroundColor Yellow
+            Copy-Item -Path "./performance_trends" -Destination "$ArtifactsDir/performance_trends" -Recurse -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "performance_trends directory not found, creating placeholder" -ForegroundColor Yellow
+            New-Item -ItemType Directory -Path "$ArtifactsDir/performance_trends" -Force | Out-Null
+            "No performance trends were generated." | Out-File -FilePath "$ArtifactsDir/performance_trends/info.txt"
+        }
+
+        # Copy any standalone files that might have been created as fallbacks
+        foreach ($File in @("./performance_results.md", "./performance_results.json", "./combined_results.md")) {
+            if (Test-Path $File) {
+                Write-Host "Copying standalone file $File to artifacts" -ForegroundColor Yellow
+                Copy-Item -Path $File -Destination "$ArtifactsDir/" -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        # List all files in artifacts directory for verification
+        Write-Host "Files prepared for upload:" -ForegroundColor Green
+        Get-ChildItem -Path $ArtifactsDir -Recurse | ForEach-Object { Write-Host "  - $($_.FullName)" }
 
     - name: Upload Performance Test Results
       uses: actions/upload-artifact@v4
       with:
         name: performance-test-results
-        path: |
-          ./perf_test
-          ./performance_trends
+        path: ./artifacts
         if-no-files-found: warn
 
     - name: Cache Performance History
@@ -215,3 +378,96 @@ jobs:
         key: performance-history-${{ github.run_id }}
         restore-keys: |
           performance-history-
+
+    - name: Run Delta Compression Tests
+      if: success() && steps.find_executables.outputs.EACOPYSERVICE_PATH != ''
+      run: |
+        # Create delta test directory
+        $DeltaTestDir = "./delta_test"
+        $DeltaResultsDir = "./delta_results"
+
+        # Ensure directories exist
+        foreach ($Dir in @($DeltaTestDir, $DeltaResultsDir)) {
+            if (-not (Test-Path $Dir)) {
+                try {
+                    Write-Host "Creating directory: $Dir" -ForegroundColor Yellow
+                    New-Item -ItemType Directory -Path $Dir -Force -ErrorAction Stop | Out-Null
+                    Write-Host "Successfully created directory" -ForegroundColor Green
+                } catch {
+                    Write-Host "Error creating directory $Dir: $_" -ForegroundColor Red
+                }
+            }
+        }
+
+        # Run delta compression tests with minimal file counts and sizes for CI
+        try {
+            Write-Host "Running delta compression tests..." -ForegroundColor Yellow
+
+            $EACopyPath = "${{ steps.find_executables.outputs.EACOPY_PATH }}"
+            $EACopyServicePath = "${{ steps.find_executables.outputs.EACOPYSERVICE_PATH }}"
+
+            # Run with minimal settings for CI
+            $TestResults = ./scripts/delta_compression_test.ps1 `
+                -EACopyPath $EACopyPath `
+                -EACopyServicePath $EACopyServicePath `
+                -TestDir $DeltaTestDir `
+                -ResultsDir $DeltaResultsDir `
+                -SmallFileCount 2 `
+                -SmallFileSize 1KB `
+                -MediumFileCount 1 `
+                -MediumFileSize 10KB `
+                -LargeFileCount 1 `
+                -LargeFileSize 100KB `
+                -ModificationPercent 10 `
+                -CleanupAfterTest $false
+
+            Write-Host "Delta compression tests completed successfully" -ForegroundColor Green
+
+            # Copy results to artifacts directory
+            if (Test-Path "$DeltaResultsDir/delta_compression_results.md") {
+                if (-not (Test-Path "./artifacts")) {
+                    New-Item -ItemType Directory -Path "./artifacts" -Force | Out-Null
+                }
+
+                if (-not (Test-Path "./artifacts/delta_results")) {
+                    New-Item -ItemType Directory -Path "./artifacts/delta_results" -Force | Out-Null
+                }
+
+                Copy-Item -Path "$DeltaResultsDir/delta_compression_results.md" -Destination "./artifacts/delta_results/" -Force
+                Write-Host "Copied delta compression results to artifacts" -ForegroundColor Green
+            } else {
+                Write-Host "Delta compression results file not found" -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "Error running delta compression tests: $_" -ForegroundColor Red
+            # Create a minimal report for the error
+            $ErrorReport = "## EACopy Delta Compression Test Results`n`n"
+            $ErrorReport += "Delta compression tests failed with error: $_`n`n"
+            $ErrorReport += "### Error Details`n"
+            $ErrorReport += "````n$($_.Exception.ToString())`n$($_.ScriptStackTrace)`n```"
+
+            # Ensure directory exists
+            if (-not (Test-Path $DeltaResultsDir)) {
+                New-Item -ItemType Directory -Path $DeltaResultsDir -Force | Out-Null
+            }
+
+            # Save error report
+            $ErrorReport | Out-File -FilePath "$DeltaResultsDir/delta_compression_results.md" -Encoding utf8
+
+            # Copy to artifacts if they exist
+            if (Test-Path "./artifacts") {
+                if (-not (Test-Path "./artifacts/delta_results")) {
+                    New-Item -ItemType Directory -Path "./artifacts/delta_results" -Force | Out-Null
+                }
+
+                Copy-Item -Path "$DeltaResultsDir/delta_compression_results.md" -Destination "./artifacts/delta_results/" -Force
+            }
+        }
+
+    - name: Upload Delta Compression Test Results
+      if: success() && steps.find_executables.outputs.EACOPYSERVICE_PATH != ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: delta-compression-test-results
+        path: ./delta_results
+        if-no-files-found: warn

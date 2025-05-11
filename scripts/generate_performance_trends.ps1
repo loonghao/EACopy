@@ -11,27 +11,65 @@ function Ensure-Module {
         [string]$ModuleName,
         [string]$MinimumVersion = "1.0"
     )
-    
+
     if (-not (Get-Module -ListAvailable -Name $ModuleName)) {
         Write-Host "Installing $ModuleName module..."
         Install-Module -Name $ModuleName -Force -Scope CurrentUser -MinimumVersion $MinimumVersion
     }
-    
+
     Import-Module $ModuleName -MinimumVersion $MinimumVersion
 }
 
-# Create directories if they don't exist
-if (-not (Test-Path $HistoryDir)) {
-    New-Item -ItemType Directory -Force -Path $HistoryDir | Out-Null
+# Create directories if they don't exist with better error handling
+function Test-AndCreateDirectory {
+    param (
+        [string]$Directory,
+        [string]$Purpose
+    )
+
+    if (-not (Test-Path $Directory)) {
+        try {
+            Write-Host "Creating $Purpose directory: $Directory" -ForegroundColor Yellow
+            New-Item -ItemType Directory -Path $Directory -Force -ErrorAction Stop | Out-Null
+            Write-Host "Successfully created $Purpose directory" -ForegroundColor Green
+            return $true
+        } catch {
+            Write-Host "Warning: Failed to create $Purpose directory: $_" -ForegroundColor Red
+            return $false
+        }
+    } else {
+        Write-Host "$Purpose directory already exists: $Directory" -ForegroundColor Gray
+        return $true
+    }
 }
 
-if (-not (Test-Path $OutputDir)) {
-    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+# Ensure history directory exists
+$historyDirExists = Test-AndCreateDirectory -Directory $HistoryDir -Purpose "history"
+if (-not $historyDirExists) {
+    # Try a fallback location
+    $HistoryDir = "./history_fallback"
+    $historyDirExists = Test-AndCreateDirectory -Directory $HistoryDir -Purpose "fallback history"
+    if (-not $historyDirExists) {
+        Write-Warning "Could not create history directory. Will try to read from current directory."
+        $HistoryDir = "."
+    }
+}
+
+# Ensure output directory exists
+$outputDirExists = Test-AndCreateDirectory -Directory $OutputDir -Purpose "output"
+if (-not $outputDirExists) {
+    # Try a fallback location
+    $OutputDir = "./trends_fallback"
+    $outputDirExists = Test-AndCreateDirectory -Directory $OutputDir -Purpose "fallback output"
+    if (-not $outputDirExists) {
+        Write-Warning "Could not create output directory. Will use current directory."
+        $OutputDir = "."
+    }
 }
 
 # Get all historical performance data files
-$HistoryFiles = Get-ChildItem -Path $HistoryDir -Filter "performance_*.json" | 
-                Sort-Object LastWriteTime -Descending | 
+$HistoryFiles = Get-ChildItem -Path $HistoryDir -Filter "performance_*.json" |
+                Sort-Object LastWriteTime -Descending |
                 Select-Object -First $MaxHistoryEntries
 
 if ($HistoryFiles.Count -eq 0) {
@@ -82,22 +120,22 @@ $HtmlReport = @"
 <body>
     <h1>EACopy Performance Trends</h1>
     <p>Last updated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")</p>
-    
+
     <h2>Execution Time Comparison (seconds)</h2>
     <div class="chart-container">
         <canvas id="timeChart"></canvas>
     </div>
-    
+
     <h2>Throughput Comparison (MB/s)</h2>
     <div class="chart-container">
         <canvas id="throughputChart"></canvas>
     </div>
-    
+
     <h2>Performance Improvement Over Robocopy (%)</h2>
     <div class="chart-container">
         <canvas id="improvementChart"></canvas>
     </div>
-    
+
     <h2>Latest Test Results</h2>
     <table id="latestResults">
         <tr>
@@ -110,7 +148,7 @@ $HtmlReport = @"
             <th>Faster Tool</th>
         </tr>
     </table>
-    
+
     <h2>Historical Data</h2>
     <table id="historyTable">
         <tr>
@@ -136,12 +174,12 @@ foreach ($Entry in $HistoryData) {
 
 $HtmlReport += @"
         ];
-        
+
         // Prepare data for charts
         const dates = historyData.map(entry => new Date(entry.TestDate).toLocaleDateString());
         const commits = historyData.map(entry => entry.CommitId.substring(0, 7));
         const labels = dates.map((date, i) => `${date} (${commits[i]})`);
-        
+
         // Extract scenario data
         const scenarios = ['All Files', 'Small Files Only', 'Medium Files Only', 'Large Files Only'];
         const datasets = {
@@ -151,7 +189,7 @@ $HtmlReport += @"
             robocopyThroughput: [],
             improvement: []
         };
-        
+
         // Create datasets for each scenario
         scenarios.forEach((scenario, scenarioIndex) => {
             const eacopyTimeData = [];
@@ -159,7 +197,7 @@ $HtmlReport += @"
             const eacopyThroughputData = [];
             const robocopyThroughputData = [];
             const improvementData = [];
-            
+
             historyData.forEach(entry => {
                 const result = entry.TestResults.find(r => r.ScenarioName === scenario);
                 if (result) {
@@ -170,7 +208,7 @@ $HtmlReport += @"
                     improvementData.push(result.TimeDiffPercent);
                 }
             });
-            
+
             datasets.eacopyTime.push({
                 label: `EACopy - ${scenario}`,
                 data: eacopyTimeData,
@@ -178,7 +216,7 @@ $HtmlReport += @"
                 backgroundColor: getColor(scenarioIndex, 0, 0.1),
                 fill: false
             });
-            
+
             datasets.robocopyTime.push({
                 label: `Robocopy - ${scenario}`,
                 data: robocopyTimeData,
@@ -187,7 +225,7 @@ $HtmlReport += @"
                 fill: false,
                 borderDash: [5, 5]
             });
-            
+
             datasets.eacopyThroughput.push({
                 label: `EACopy - ${scenario}`,
                 data: eacopyThroughputData,
@@ -195,7 +233,7 @@ $HtmlReport += @"
                 backgroundColor: getColor(scenarioIndex, 0, 0.1),
                 fill: false
             });
-            
+
             datasets.robocopyThroughput.push({
                 label: `Robocopy - ${scenario}`,
                 data: robocopyThroughputData,
@@ -204,7 +242,7 @@ $HtmlReport += @"
                 fill: false,
                 borderDash: [5, 5]
             });
-            
+
             datasets.improvement.push({
                 label: scenario,
                 data: improvementData,
@@ -213,7 +251,7 @@ $HtmlReport += @"
                 fill: false
             });
         });
-        
+
         // Helper function to get colors
         function getColor(index, variant, alpha = 1) {
             const colors = [
@@ -222,17 +260,17 @@ $HtmlReport += @"
                 ['rgb(75, 192, 192)', 'rgb(75, 192, 192, ' + alpha + ')'],
                 ['rgb(255, 159, 64)', 'rgb(255, 159, 64, ' + alpha + ')']
             ];
-            
+
             const variants = [
                 [0, 0],  // EACopy
                 [1, 0],  // Robocopy
                 [2, 0]   // Improvement
             ];
-            
+
             const [colorIndex, alphaIndex] = variants[variant];
             return colors[(index + colorIndex) % colors.length][alphaIndex];
         }
-        
+
         // Create charts
         const timeCtx = document.getElementById('timeChart').getContext('2d');
         new Chart(timeCtx, {
@@ -254,7 +292,7 @@ $HtmlReport += @"
                 }
             }
         });
-        
+
         const throughputCtx = document.getElementById('throughputChart').getContext('2d');
         new Chart(throughputCtx, {
             type: 'line',
@@ -275,7 +313,7 @@ $HtmlReport += @"
                 }
             }
         });
-        
+
         const improvementCtx = document.getElementById('improvementChart').getContext('2d');
         new Chart(improvementCtx, {
             type: 'line',
@@ -295,11 +333,11 @@ $HtmlReport += @"
                 }
             }
         });
-        
+
         // Fill latest results table
         const latestData = historyData[historyData.length - 1];
         const latestTable = document.getElementById('latestResults');
-        
+
         latestData.TestResults.forEach(result => {
             const row = latestTable.insertRow();
             row.insertCell(0).textContent = result.ScenarioName;
@@ -310,15 +348,15 @@ $HtmlReport += @"
             row.insertCell(5).textContent = result.TimeDiffPercent + '%';
             row.insertCell(6).textContent = result.FasterTool;
         });
-        
+
         // Fill history table
         const historyTable = document.getElementById('historyTable');
-        
+
         historyData.forEach(entry => {
             const row = historyTable.insertRow();
             row.insertCell(0).textContent = new Date(entry.TestDate).toLocaleString();
             row.insertCell(1).textContent = entry.CommitId.substring(0, 7);
-            
+
             // Add improvement percentages for each scenario
             scenarios.forEach((scenario, index) => {
                 const result = entry.TestResults.find(r => r.ScenarioName === scenario);
@@ -359,6 +397,6 @@ Latest test: $($LatestData.TestDate)
 
     $MarkdownSummaryPath = Join-Path $OutputDir "performance_summary.md"
     $MarkdownSummary | Out-File -FilePath $MarkdownSummaryPath -Encoding utf8
-    
+
     Write-Host "Performance summary generated at: $MarkdownSummaryPath"
 }
