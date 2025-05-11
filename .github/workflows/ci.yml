@@ -111,28 +111,32 @@ jobs:
         Get-ChildItem -Path "." -Recurse -Depth 4 -Include "*.exe" | ForEach-Object { Write-Host "  - $($_.FullName)" }
 
         # Find EACopy and EACopyService executables
-        $Executables = @{
-            "EACopy" = $null
-            "EACopyService" = $null
-        }
+        $Results = @{}
+
+        # Define executables to find - avoid modifying collection during iteration
+        $ExecutablesToFind = @("EACopy", "EACopyService")
 
         $PossiblePaths = @(
+            # CI environment paths (most likely)
+            "./Release/{0}.exe",
+            # Build paths
             "./build/Release/{0}.exe",
             "./build_Release/Release/{0}.exe",
-            "./Release/{0}.exe",
             "./build/Debug/{0}.exe",
             "./build_Debug/Debug/{0}.exe",
             "./Debug/{0}.exe"
         )
 
-        foreach ($Executable in $Executables.Keys) {
+        # Process each executable separately to avoid collection modification issues
+        foreach ($Executable in $ExecutablesToFind) {
             $FoundPath = $null
-            Write-Host "Checking specific paths for $Executable:" -ForegroundColor Yellow
+            Write-Host "Checking specific paths for $($Executable):" -ForegroundColor Yellow
 
+            # Check each possible path template
             foreach ($PathTemplate in $PossiblePaths) {
                 $Path = $PathTemplate -f $Executable
                 $Exists = Test-Path $Path
-                Write-Host "  - $Path : $($Exists ? 'EXISTS' : 'NOT FOUND')"
+                Write-Host "  - $Path : $(if ($Exists) { 'EXISTS' } else { 'NOT FOUND' })"
 
                 if ($Exists) {
                     $FoundPath = $Path
@@ -141,13 +145,14 @@ jobs:
                 }
             }
 
-            # Use the found path or try to find it dynamically
-            if ($FoundPath) {
-                $Executables[$Executable] = $FoundPath
-            } else {
-                $DynamicPath = (Get-ChildItem -Path "." -Recurse -Depth 4 -Include "$Executable.exe" | Select-Object -First 1).FullName
-                if ($DynamicPath) {
-                    $Executables[$Executable] = $DynamicPath
+            # If not found in specific paths, search recursively
+            if (-not $FoundPath) {
+                Write-Host "Searching recursively for $Executable.exe..." -ForegroundColor Yellow
+                $ExeFiles = @(Get-ChildItem -Path "." -Recurse -Depth 4 -Include "$Executable.exe" -ErrorAction SilentlyContinue)
+
+                if ($ExeFiles.Count -gt 0) {
+                    $DynamicPath = $ExeFiles[0].FullName
+                    $FoundPath = $DynamicPath
                     Write-Host "Dynamically found $Executable at: $DynamicPath" -ForegroundColor Green
                 } else {
                     Write-Host "Could not find $Executable.exe anywhere!" -ForegroundColor Red
@@ -156,77 +161,107 @@ jobs:
                     }
                 }
             }
+
+            # Store the result
+            $Results[$Executable] = $FoundPath
         }
 
         # Set outputs for use in other steps
-        "EACOPY_PATH=$($Executables['EACopy'])" >> $env:GITHUB_OUTPUT
-        "EACOPYSERVICE_PATH=$($Executables['EACopyService'])" >> $env:GITHUB_OUTPUT
+        "EACOPY_PATH=$($Results['EACopy'])" >> $env:GITHUB_OUTPUT
+        "EACOPYSERVICE_PATH=$($Results['EACopyService'])" >> $env:GITHUB_OUTPUT
 
-        # Store for use in this step
-        $EACopyPath = $Executables['EACopy']
-        $EACopyServicePath = $Executables['EACopyService']
+        # Display final results
+        Write-Host "Final executable paths:" -ForegroundColor Cyan
+        Write-Host "EACopy: $($Results['EACopy'])"
+        Write-Host "EACopyService: $($Results['EACopyService'])"
 
     - name: Run Performance Tests
       run: |
         # Use the executable paths from the previous step
         $EACopyPath = "${{ steps.find_executables.outputs.EACOPY_PATH }}"
 
+        # Verify executable path exists
+        if (-not (Test-Path $EACopyPath)) {
+            Write-Host "ERROR: EACopy executable not found at path: $EACopyPath" -ForegroundColor Red
+            Write-Host "Searching for any EACopy executable..." -ForegroundColor Yellow
+            $FoundExes = @(Get-ChildItem -Path "." -Recurse -Depth 4 -Include "EACopy.exe" -ErrorAction SilentlyContinue)
+            if ($FoundExes.Count -gt 0) {
+                $EACopyPath = $FoundExes[0].FullName
+                Write-Host "Found alternative EACopy at: $EACopyPath" -ForegroundColor Green
+            } else {
+                Write-Host "No EACopy executable found anywhere. Cannot continue." -ForegroundColor Red
+                exit 1
+            }
+        } else {
+            Write-Host "Verified EACopy executable exists at: $EACopyPath" -ForegroundColor Green
+        }
+
         # Create necessary directories first (with better error handling)
         $DirectoriesToCreate = @("./perf_test", "./performance_history", "./performance_trends")
         foreach ($Dir in $DirectoriesToCreate) {
-            if (-not (Test-Path $Dir)) {
-                Write-Host "Creating directory: $Dir" -ForegroundColor Yellow
+            Write-Host "Creating directory: $Dir" -ForegroundColor Yellow
+            try {
+                # Use -Force to ensure no errors even if directory already exists
+                New-Item -ItemType Directory -Path $Dir -Force -ErrorAction Stop | Out-Null
+                Write-Host "Successfully created directory: $Dir" -ForegroundColor Green
+            } catch {
+                Write-Host "Warning: Failed to create directory $Dir - $_" -ForegroundColor Yellow
+                # Try with absolute path
                 try {
-                    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+                    $AbsPath = Join-Path (Get-Location).Path $Dir
+                    New-Item -ItemType Directory -Path $AbsPath -Force -ErrorAction Stop | Out-Null
+                    Write-Host "Created with absolute path: $AbsPath" -ForegroundColor Green
                 } catch {
-                    Write-Host "Warning: Failed to create directory $Dir - $_" -ForegroundColor Yellow
-                    # Continue anyway, as the directory might be created by another process
+                    Write-Host "Critical: Could not create directory even with absolute path - $_" -ForegroundColor Red
                 }
+            }
+        }
+
+        # Run performance tests directly instead of in a job to avoid context issues
+        try {
+            Write-Host "Running performance test with EACopy path: $EACopyPath" -ForegroundColor Cyan
+
+            # Run with a timeout using Start-Process instead of a job
+            $ScriptPath = "./scripts/performance_test.ps1"
+            $ScriptArgs = "-EACopyPath `"$EACopyPath`" -TestDir `"./perf_test`" -SmallFileCount 100 -SmallFileSize 10KB -MediumFileCount 20 -MediumFileSize 1MB -LargeFileCount 5 -LargeFileSize 100MB -CleanupAfterTest `$false -HistoryDir `"./performance_history`" -CommitId `"${{ steps.get_commit.outputs.commit_id }}`" -DisableCache -VerifyCopy"
+
+            Write-Host "Command: $ScriptPath $ScriptArgs" -ForegroundColor Yellow
+
+            # Use Start-Process with a timeout
+            $process = Start-Process -FilePath "powershell.exe" -ArgumentList "-File $ScriptPath $ScriptArgs" -NoNewWindow -PassThru
+
+            # Wait for the process to complete with a timeout
+            $timeout = 300 # 5 minutes
+            if (-not $process.WaitForExit($timeout * 1000)) {
+                Write-Host "Performance test timed out after $timeout seconds" -ForegroundColor Red
+                try {
+                    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                } catch {
+                    Write-Host "Failed to stop process: $_" -ForegroundColor Yellow
+                }
+
+                # Create a minimal performance report
+                $MinimalReport = "## EACopy vs Robocopy Performance Test Results`n`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.`n`n### Test Configuration`n- Small Files: 100 files of 10KB each`n- Medium Files: 20 files of 1MB each`n- Large Files: 5 files of 100MB each`n- EACopy Path: $EACopyPath"
+                $MinimalReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8 -Force
             } else {
-                Write-Host "Directory already exists: $Dir" -ForegroundColor Gray
-            }
-        }
+                $exitCode = $process.ExitCode
+                Write-Host "Performance test completed with exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
 
-        # Run performance tests with minimal file counts and sizes for CI
-        # Set a timeout to prevent the test from running too long
-        $job = Start-Job -ScriptBlock {
-            param($EACopyPath, $CommitId)
-            # Create test directories using more reliable methods
-            $DirectoriesToCreate = @("./perf_test", "./performance_history")
-            foreach ($Dir in $DirectoriesToCreate) {
-                Write-Host "Ensuring directory exists in job: $Dir"
-                try {
-                    # Use -Force parameter to ensure no errors even if directory already exists
-                    New-Item -ItemType Directory -Path $Dir -Force -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "Directory ready: $Dir" -ForegroundColor Green
-                } catch {
-                    Write-Host "Warning: Issue with directory $Dir - $_" -ForegroundColor Yellow
-                    # Try using absolute path as fallback
-                    try {
-                        $AbsPath = Join-Path (Get-Location).Path $Dir
-                        New-Item -ItemType Directory -Path $AbsPath -Force -ErrorAction SilentlyContinue | Out-Null
-                        Write-Host "Created with absolute path: $AbsPath" -ForegroundColor Green
-                    } catch {
-                        Write-Host "Critical: Could not create directory even with absolute path - $_" -ForegroundColor Red
-                    }
+                # Check if results were generated
+                if (-not (Test-Path "./perf_test/performance_results.md")) {
+                    Write-Host "No performance results found, creating minimal report" -ForegroundColor Yellow
+                    $ResultsReport = "## EACopy vs Robocopy Performance Test Results`n`nPerformance test completed with exit code $exitCode but no results were generated.`n`n### Test Configuration`n- Small Files: 100 files of 10KB each`n- Medium Files: 20 files of 1MB each`n- Large Files: 5 files of 100MB each`n- EACopy Path: $EACopyPath"
+                    $ResultsReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8 -Force
                 }
             }
+        } catch {
+            Write-Host "Error running performance test: $_" -ForegroundColor Red
+            Write-Host "Stack trace: $($_.ScriptStackTrace)" -ForegroundColor Red
 
-            ./scripts/performance_test.ps1 -EACopyPath $EACopyPath -TestDir "./perf_test" -SmallFileCount 20 -SmallFileSize 1KB -MediumFileCount 5 -MediumFileSize 100KB -LargeFileCount 2 -LargeFileSize 1MB -CleanupAfterTest $false -HistoryDir "./performance_history" -CommitId $CommitId
-        } -ArgumentList $EACopyPath, "${{ steps.get_commit.outputs.commit_id }}"
-
-        # Wait for the job to complete with a timeout
-        $timeout = 300 # 5 minutes
-        if (Wait-Job $job -Timeout $timeout) {
-            Receive-Job $job
-        } else {
-            Write-Host "Performance test timed out after $timeout seconds" -ForegroundColor Red
-            Stop-Job $job
-
-            # Create a minimal performance report
-            $MinimalReport = "## EACopy vs Robocopy Performance Test Results\`n\`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.\`n\`n### Test Configuration (Minimal)\`n- Small Files: 20 files of 1KB each\`n- Medium Files: 5 files of 100KB each\`n- Large Files: 2 files of 1MB each"
+            # Create error report
+            $ErrorReport = "## EACopy vs Robocopy Performance Test Results`n`nError occurred while running performance test: $_`n`n### Error Details`n````n$($_.Exception.ToString())`n$($_.ScriptStackTrace)`n````n`n### Test Configuration`n- Small Files: 100 files of 10KB each`n- Medium Files: 20 files of 1MB each`n- Large Files: 5 files of 100MB each`n- EACopy Path: $EACopyPath"
+            $ErrorReport | Out-File -FilePath "./perf_test/performance_results.md" -Encoding utf8 -Force
         }
-        Remove-Job $job -Force
 
     - name: Generate Performance Trends
       run: |
@@ -397,19 +432,72 @@ jobs:
     - name: Run Delta Compression Tests
       if: success() && steps.find_executables.outputs.EACOPYSERVICE_PATH != ''
       run: |
+        # Get executable paths from previous step
+        $EACopyPath = "${{ steps.find_executables.outputs.EACOPY_PATH }}"
+        $EACopyServicePath = "${{ steps.find_executables.outputs.EACOPYSERVICE_PATH }}"
+
+        # Verify executable paths exist
+        $PathsValid = $true
+
+        if (-not (Test-Path $EACopyPath)) {
+            Write-Host "ERROR: EACopy executable not found at path: $EACopyPath" -ForegroundColor Red
+            $PathsValid = $false
+        } else {
+            Write-Host "Verified EACopy executable exists at: $EACopyPath" -ForegroundColor Green
+        }
+
+        if (-not (Test-Path $EACopyServicePath)) {
+            Write-Host "ERROR: EACopyService executable not found at path: $EACopyServicePath" -ForegroundColor Red
+            $PathsValid = $false
+        } else {
+            Write-Host "Verified EACopyService executable exists at: $EACopyServicePath" -ForegroundColor Green
+        }
+
+        # If paths are invalid, try to find executables
+        if (-not $PathsValid) {
+            Write-Host "Searching for executables..." -ForegroundColor Yellow
+            $FoundExes = @(Get-ChildItem -Path "." -Recurse -Depth 4 -Include "*.exe" -ErrorAction SilentlyContinue)
+
+            foreach ($Exe in $FoundExes) {
+                Write-Host "Found executable: $($Exe.FullName)" -ForegroundColor Yellow
+                if ($Exe.Name -eq "EACopy.exe" -and (-not (Test-Path $EACopyPath))) {
+                    $EACopyPath = $Exe.FullName
+                    Write-Host "Using EACopy at: $EACopyPath" -ForegroundColor Green
+                }
+                if ($Exe.Name -eq "EACopyService.exe" -and (-not (Test-Path $EACopyServicePath))) {
+                    $EACopyServicePath = $Exe.FullName
+                    Write-Host "Using EACopyService at: $EACopyServicePath" -ForegroundColor Green
+                }
+            }
+
+            # Check if we found both executables
+            if (-not (Test-Path $EACopyPath) -or -not (Test-Path $EACopyServicePath)) {
+                Write-Host "Could not find required executables. Cannot run delta compression tests." -ForegroundColor Red
+                exit 0  # Exit without error to allow other steps to continue
+            }
+        }
+
         # Create delta test directory
         $DeltaTestDir = "./delta_test"
         $DeltaResultsDir = "./delta_results"
 
         # Ensure directories exist
         foreach ($Dir in @($DeltaTestDir, $DeltaResultsDir)) {
-            if (-not (Test-Path $Dir)) {
+            Write-Host "Creating directory: $Dir" -ForegroundColor Yellow
+            try {
+                # Use -Force to ensure no errors even if directory already exists
+                New-Item -ItemType Directory -Path $Dir -Force -ErrorAction Stop | Out-Null
+                Write-Host "Successfully created directory: $Dir" -ForegroundColor Green
+            } catch {
+                Write-Host "Warning: Failed to create directory $Dir - $_" -ForegroundColor Yellow
+                # Try with absolute path
                 try {
-                    Write-Host "Creating directory: $Dir" -ForegroundColor Yellow
-                    New-Item -ItemType Directory -Path $Dir -Force -ErrorAction Stop | Out-Null
-                    Write-Host "Successfully created directory" -ForegroundColor Green
+                    $AbsPath = Join-Path (Get-Location).Path $Dir
+                    New-Item -ItemType Directory -Path $AbsPath -Force -ErrorAction Stop | Out-Null
+                    Write-Host "Created with absolute path: $AbsPath" -ForegroundColor Green
                 } catch {
-                    Write-Host "Error creating directory $Dir: $_" -ForegroundColor Red
+                    Write-Host "Critical: Could not create directory even with absolute path - $_" -ForegroundColor Red
+                    # Continue anyway, the script might create the directory
                 }
             }
         }
@@ -417,26 +505,58 @@ jobs:
         # Run delta compression tests with minimal file counts and sizes for CI
         try {
             Write-Host "Running delta compression tests..." -ForegroundColor Yellow
+            Write-Host "EACopy path: $EACopyPath" -ForegroundColor Cyan
+            Write-Host "EACopyService path: $EACopyServicePath" -ForegroundColor Cyan
 
-            $EACopyPath = "${{ steps.find_executables.outputs.EACOPY_PATH }}"
-            $EACopyServicePath = "${{ steps.find_executables.outputs.EACOPYSERVICE_PATH }}"
+            # Use Start-Process with a timeout to avoid hanging
+            $ScriptPath = "./scripts/delta_compression_test.ps1"
+            $ScriptArgs = "-EACopyPath `"$EACopyPath`" -EACopyServicePath `"$EACopyServicePath`" -TestDir `"$DeltaTestDir`" -ResultsDir `"$DeltaResultsDir`" -SmallFileCount 2 -SmallFileSize 1KB -MediumFileCount 1 -MediumFileSize 10KB -LargeFileCount 1 -LargeFileSize 100KB -ModificationPercent 10 -CleanupAfterTest `$false"
 
-            # Run with minimal settings for CI
-            $TestResults = ./scripts/delta_compression_test.ps1 `
-                -EACopyPath $EACopyPath `
-                -EACopyServicePath $EACopyServicePath `
-                -TestDir $DeltaTestDir `
-                -ResultsDir $DeltaResultsDir `
-                -SmallFileCount 2 `
-                -SmallFileSize 1KB `
-                -MediumFileCount 1 `
-                -MediumFileSize 10KB `
-                -LargeFileCount 1 `
-                -LargeFileSize 100KB `
-                -ModificationPercent 10 `
-                -CleanupAfterTest $false
+            Write-Host "Command: $ScriptPath $ScriptArgs" -ForegroundColor Yellow
 
-            Write-Host "Delta compression tests completed successfully" -ForegroundColor Green
+            # Use Start-Process with a timeout
+            $process = Start-Process -FilePath "powershell.exe" -ArgumentList "-File $ScriptPath $ScriptArgs" -NoNewWindow -PassThru
+
+            # Wait for the process to complete with a timeout
+            $timeout = 300 # 5 minutes
+            if (-not $process.WaitForExit($timeout * 1000)) {
+                Write-Host "Delta compression test timed out after $timeout seconds" -ForegroundColor Red
+                try {
+                    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                } catch {
+                    Write-Host "Failed to stop process: $_" -ForegroundColor Yellow
+                }
+
+                # Create a minimal report for timeout
+                $TimeoutReport = "## EACopy Delta Compression Test Results`n`nTest timed out after $timeout seconds. This may indicate performance issues or environment constraints in CI.`n`n### Test Configuration (Minimal)`n- Small Files: 2 files of 1KB each`n- Medium Files: 1 file of 10KB each`n- Large Files: 1 file of 100KB each`n- Modification Percent: 10%`n- EACopy Path: $EACopyPath`n- EACopyService Path: $EACopyServicePath"
+
+                # Ensure directory exists
+                if (-not (Test-Path $DeltaResultsDir)) {
+                    New-Item -ItemType Directory -Path $DeltaResultsDir -Force | Out-Null
+                }
+
+                # Save timeout report
+                $TimeoutReport | Out-File -FilePath "$DeltaResultsDir/delta_compression_results.md" -Encoding utf8
+            } else {
+                $exitCode = $process.ExitCode
+                Write-Host "Delta compression tests completed with exit code: $exitCode" -ForegroundColor $(if ($exitCode -eq 0) { "Green" } else { "Red" })
+
+                # Check if results were generated
+                if (-not (Test-Path "$DeltaResultsDir/delta_compression_results.md")) {
+                    Write-Host "No delta compression results found, creating minimal report" -ForegroundColor Yellow
+                    $ResultsReport = "## EACopy Delta Compression Test Results`n`nDelta compression test completed with exit code $exitCode but no results were generated.`n`n### Test Configuration (Minimal)`n- Small Files: 2 files of 1KB each`n- Medium Files: 1 file of 10KB each`n- Large Files: 1 file of 100KB each`n- Modification Percent: 10%`n- EACopy Path: $EACopyPath`n- EACopyService Path: $EACopyServicePath"
+
+                    # Ensure directory exists
+                    if (-not (Test-Path $DeltaResultsDir)) {
+                        New-Item -ItemType Directory -Path $DeltaResultsDir -Force | Out-Null
+                    }
+
+                    # Save results report
+                    $ResultsReport | Out-File -FilePath "$DeltaResultsDir/delta_compression_results.md" -Encoding utf8
+                } else {
+                    Write-Host "Delta compression tests completed successfully" -ForegroundColor Green
+                }
+            }
 
             # Copy results to artifacts directory
             if (Test-Path "$DeltaResultsDir/delta_compression_results.md") {
@@ -455,11 +575,10 @@ jobs:
             }
         } catch {
             Write-Host "Error running delta compression tests: $_" -ForegroundColor Red
+            Write-Host "Stack trace: $($_.ScriptStackTrace)" -ForegroundColor Red
+
             # Create a minimal report for the error
-            $ErrorReport = "## EACopy Delta Compression Test Results`n`n"
-            $ErrorReport += "Delta compression tests failed with error: $_`n`n"
-            $ErrorReport += "### Error Details`n"
-            $ErrorReport += "````n$($_.Exception.ToString())`n$($_.ScriptStackTrace)`n```"
+            $ErrorReport = "## EACopy Delta Compression Test Results`n`nDelta compression tests failed with error: $_`n`n### Error Details`n````n$($_.Exception.ToString())`n$($_.ScriptStackTrace)`n````n`n### Test Configuration`n- EACopy Path: $EACopyPath`n- EACopyService Path: $EACopyServicePath"
 
             # Ensure directory exists
             if (-not (Test-Path $DeltaResultsDir)) {

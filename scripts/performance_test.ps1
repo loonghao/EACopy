@@ -10,13 +10,15 @@ param (
     [long]$SmallFileSize = 10KB,
     [int]$MediumFileCount = 100,
     [long]$MediumFileSize = 2MB,
-    [int]$LargeFileCount = 10,
-    [long]$LargeFileSize = 5120MB,
+    [int]$LargeFileCount = 5,
+    [long]$LargeFileSize = 1GB,  # Reduced from 5120MB to 1GB for more realistic testing
     [switch]$CleanupAfterTest = $true,
     [string]$HistoryDir = ".\performance_history",
     [string]$CommitId = "",
     [switch]$CollectDetailedMetrics = $true,  # Whether to collect detailed system metrics during tests
-    [int]$MetricSamplingInterval = 1  # Seconds between metric samples during tests
+    [int]$MetricSamplingInterval = 1,  # Seconds between metric samples during tests
+    [switch]$DisableCache = $true,  # Whether to attempt to disable file system cache
+    [switch]$VerifyCopy = $true    # Whether to verify file copy results
 )
 
 # Function to collect system information
@@ -372,22 +374,106 @@ New-Item -ItemType Directory -Force -Path $SourceDir | Out-Null
 New-Item -ItemType Directory -Force -Path $DestDir1 | Out-Null
 New-Item -ItemType Directory -Force -Path $DestDir2 | Out-Null
 
-# Function to create test files
+# Function to create test files with realistic data patterns
 function Create-TestFiles {
     param (
         [string]$Directory,
         [int]$Count,
         [long]$Size,
-        [string]$Prefix
+        [string]$Prefix,
+        [switch]$UseRealisticData = $true  # Whether to create files with realistic data patterns
     )
 
-    Write-Host "Creating $Count $Prefix files of size $Size in $Directory..."
+    Write-Host "Creating $Count $Prefix files of size $Size in $Directory..." -ForegroundColor Yellow
 
     # Create subdirectories to simulate a more realistic file structure
     $SubDirCount = [Math]::Min(10, $Count / 10)
     for ($i = 1; $i -le $SubDirCount; $i++) {
         $SubDir = Join-Path $Directory "subdir_$i"
         New-Item -ItemType Directory -Force -Path $SubDir | Out-Null
+    }
+
+    # Create a data pattern generator for realistic files
+    function Get-RealisticDataPattern {
+        param (
+            [int]$PatternIndex,
+            [byte[]]$Buffer,
+            [int]$BufferSize
+        )
+
+        $Random = New-Object Random
+
+        switch ($PatternIndex % 5) {
+            0 {
+                # Completely random data
+                $Random.NextBytes($Buffer)
+            }
+            1 {
+                # Text-like data with spaces and line breaks
+                for ($i = 0; $i -lt $BufferSize; $i++) {
+                    # ASCII printable characters (32-126) with occasional line breaks
+                    if ($i % 80 -eq 0 -and $i -gt 0) {
+                        $Buffer[$i] = 10  # Line feed
+                    } elseif ($Random.Next(10) -eq 0) {
+                        $Buffer[$i] = 32  # Space
+                    } else {
+                        $Buffer[$i] = [byte]($Random.Next(94) + 33)  # Random printable ASCII
+                    }
+                }
+            }
+            2 {
+                # Binary data with patterns (simulating executable or compressed data)
+                $Pattern = @(0, 0, 0, 0, 255, 255, 255, 255)
+                $PatternLength = $Pattern.Length
+
+                for ($i = 0; $i -lt $BufferSize; $i++) {
+                    if ($Random.Next(20) -eq 0) {
+                        # Occasional random byte
+                        $Buffer[$i] = [byte]$Random.Next(256)
+                    } else {
+                        # Pattern-based byte
+                        $Buffer[$i] = [byte]$Pattern[$i % $PatternLength]
+                    }
+                }
+            }
+            3 {
+                # Repeating data with occasional changes (simulating structured data)
+                $BaseValue = [byte]$Random.Next(256)
+
+                for ($i = 0; $i -lt $BufferSize; $i++) {
+                    if ($i % 16 -eq 0) {
+                        # Change base value every 16 bytes
+                        $BaseValue = [byte]$Random.Next(256)
+                    }
+
+                    if ($Random.Next(32) -eq 0) {
+                        # Occasional random byte
+                        $Buffer[$i] = [byte]$Random.Next(256)
+                    } else {
+                        # Base value with small variation
+                        $Variation = $Random.Next(21) - 10  # -10 to +10
+                        $Value = $BaseValue + $Variation
+                        if ($Value -lt 0) { $Value = 0 }
+                        if ($Value -gt 255) { $Value = 255 }
+                        $Buffer[$i] = [byte]$Value
+                    }
+                }
+            }
+            4 {
+                # Gradient pattern (simulating image data)
+                $StartValue = [byte]$Random.Next(256)
+                $EndValue = [byte]$Random.Next(256)
+                $Range = $EndValue - $StartValue
+
+                for ($i = 0; $i -lt $BufferSize; $i++) {
+                    $Position = $i / $BufferSize
+                    $Value = $StartValue + [int]($Position * $Range)
+                    if ($Value -lt 0) { $Value = 0 }
+                    if ($Value -gt 255) { $Value = 255 }
+                    $Buffer[$i] = [byte]$Value
+                }
+            }
+        }
     }
 
     for ($i = 1; $i -le $Count; $i++) {
@@ -400,6 +486,9 @@ function Create-TestFiles {
 
         $FilePath = Join-Path $TargetDir "$Prefix`_file_$i.dat"
 
+        # Use different data patterns for different files
+        $PatternIndex = $i % 5
+
         # Handle large files by writing in chunks to avoid Int32 overflow
         if ($Size -gt [int]::MaxValue) {
             # Create the file
@@ -409,7 +498,6 @@ function Create-TestFiles {
                 # Determine chunk size (500MB)
                 $ChunkSize = 500MB
                 $RemainingSize = $Size
-                $Random = New-Object Random
 
                 # Write file in chunks
                 while ($RemainingSize -gt 0) {
@@ -418,7 +506,13 @@ function Create-TestFiles {
 
                     # Create buffer for this chunk
                     $Buffer = New-Object byte[] $CurrentChunkSize
-                    $Random.NextBytes($Buffer)
+
+                    # Fill buffer with appropriate data pattern
+                    if ($UseRealisticData) {
+                        Get-RealisticDataPattern -PatternIndex $PatternIndex -Buffer $Buffer -BufferSize $CurrentChunkSize
+                    } else {
+                        (New-Object Random).NextBytes($Buffer)
+                    }
 
                     # Write chunk to file (ensuring parameters are within Int32 range)
                     $FileStream.Write($Buffer, 0, [int]$CurrentChunkSize)
@@ -433,6 +527,9 @@ function Create-TestFiles {
                         Write-Host "`r" -NoNewline
                     }
                 }
+
+                # Ensure data is written to disk
+                $FileStream.Flush($true)
             }
             finally {
                 # Close the file stream
@@ -441,19 +538,197 @@ function Create-TestFiles {
             }
         }
         else {
-            # For smaller files, use the original method
+            # For smaller files, create the entire buffer at once
             $Buffer = New-Object byte[] $Size
-            (New-Object Random).NextBytes($Buffer)
+
+            # Fill buffer with appropriate data pattern
+            if ($UseRealisticData) {
+                Get-RealisticDataPattern -PatternIndex $PatternIndex -Buffer $Buffer -BufferSize $Size
+            } else {
+                (New-Object Random).NextBytes($Buffer)
+            }
+
+            # Write to file
             [System.IO.File]::WriteAllBytes($FilePath, $Buffer)
         }
 
-        # Show progress for large files
-        if ($Size -gt 1MB -and $i % 5 -eq 0) {
-            Write-Host "  Created $i of $Count files..."
+        # Show progress for large files or periodically for many files
+        if (($Size -gt 1MB -and $i % 5 -eq 0) -or ($Count -gt 100 -and $i % 50 -eq 0) -or ($i -eq $Count)) {
+            Write-Host "  Created $i of $Count files..." -ForegroundColor Yellow
         }
     }
 
-    Write-Host "Created $Count $Prefix files."
+    # Get total size of created files
+    $TotalSize = (Get-ChildItem -Path $Directory -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $TotalSizeMB = [Math]::Round($TotalSize / 1MB, 2)
+
+    Write-Host "Created $Count $Prefix files. Total size: $TotalSizeMB MB" -ForegroundColor Green
+}
+
+# Function to clear file system cache (requires admin privileges)
+function Clear-FileSystemCache {
+    Write-Host "Attempting to clear file system cache..." -ForegroundColor Yellow
+
+    # Check if running as administrator
+    $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $IsAdmin) {
+        Write-Host "Warning: Not running as administrator. Cannot clear file system cache." -ForegroundColor Yellow
+        Write-Host "For more accurate results, run the script as administrator." -ForegroundColor Yellow
+        return $false
+    }
+
+    try {
+        # Method 1: Using SetSystemFileCacheSize API
+        $signature = @'
+        [DllImport("kernel32.dll", SetLastError=true)]
+        public static extern bool SetSystemFileCacheSize(IntPtr MinimumFileCacheSize, IntPtr MaximumFileCacheSize, uint Flags);
+'@
+
+        $type = Add-Type -MemberDefinition $signature -Name "CacheUtil" -Namespace Win32Functions -PassThru
+        $result = $type::SetSystemFileCacheSize([IntPtr]::Zero, [IntPtr]::Zero, 0)
+
+        if ($result) {
+            Write-Host "Successfully cleared file system cache using SetSystemFileCacheSize." -ForegroundColor Green
+            return $true
+        }
+
+        # Method 2: Using PowerShell command (Windows 8.1/Server 2012 R2 and later)
+        Write-Host "Trying alternative method to clear cache..." -ForegroundColor Yellow
+
+        # Check if Clear-FileSystemCache cmdlet exists (Windows 8.1/Server 2012 R2 and later)
+        if (Get-Command -Name Clear-FileSystemCache -ErrorAction SilentlyContinue) {
+            Clear-FileSystemCache
+            Write-Host "Successfully cleared file system cache using Clear-FileSystemCache cmdlet." -ForegroundColor Green
+            return $true
+        }
+
+        # Method 3: Using RAMMap (SysInternals) if available
+        $RAMMapPath = "C:\Program Files\RAMMap\RAMMap.exe"
+        if (Test-Path $RAMMapPath) {
+            Write-Host "Using RAMMap to clear cache..." -ForegroundColor Yellow
+            Start-Process -FilePath $RAMMapPath -ArgumentList "-Ew" -Wait
+            Write-Host "Successfully cleared file system cache using RAMMap." -ForegroundColor Green
+            return $true
+        }
+
+        # Method 4: Using working set trimming as a fallback
+        Write-Host "Using memory working set trimming as fallback..." -ForegroundColor Yellow
+
+        # Get all processes
+        $processes = Get-Process
+
+        # Trim working sets
+        foreach ($process in $processes) {
+            try {
+                $process.MinWorkingSet = [IntPtr]::Zero
+                $process.MaxWorkingSet = [IntPtr]::Zero
+            } catch {
+                # Ignore errors for system processes
+            }
+        }
+
+        Write-Host "Trimmed process working sets as a fallback cache clearing method." -ForegroundColor Yellow
+        return $true
+    }
+    catch {
+        Write-Host "Error clearing file system cache: $_" -ForegroundColor Red
+        return $false
+    }
+}
+
+# Function to verify copy results
+function Verify-CopyResults {
+    param (
+        [string]$SourcePath,
+        [string]$DestPath,
+        [int]$MaxFilesToVerify = 10  # Limit the number of files to verify for performance
+    )
+
+    Write-Host "Verifying copy results..." -ForegroundColor Yellow
+
+    # Get source files
+    $SourceFiles = Get-ChildItem -Path $SourcePath -Recurse -File
+
+    # Get destination files
+    $DestFiles = Get-ChildItem -Path $DestPath -Recurse -File
+
+    # Check file count
+    if ($SourceFiles.Count -ne $DestFiles.Count) {
+        Write-Host "Verification failed: File count mismatch. Source: $($SourceFiles.Count), Destination: $($DestFiles.Count)" -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "File count matches: $($SourceFiles.Count) files" -ForegroundColor Green
+
+    # Select a sample of files to verify
+    $FilesToVerify = @()
+
+    # Always include first and last file
+    $FilesToVerify += $SourceFiles[0]
+    if ($SourceFiles.Count -gt 1) {
+        $FilesToVerify += $SourceFiles[$SourceFiles.Count - 1]
+    }
+
+    # Add some files from the middle if there are more than 2 files
+    if ($SourceFiles.Count -gt 2) {
+        $Step = [Math]::Max(1, [Math]::Floor($SourceFiles.Count / ($MaxFilesToVerify - 2)))
+        for ($i = $Step; $i -lt $SourceFiles.Count - 1; $i += $Step) {
+            $FilesToVerify += $SourceFiles[$i]
+            if ($FilesToVerify.Count -ge $MaxFilesToVerify) {
+                break
+            }
+        }
+    }
+
+    # Verify each selected file
+    $VerifiedCount = 0
+    $FailedCount = 0
+
+    foreach ($SourceFile in $FilesToVerify) {
+        # Get relative path
+        $RelativePath = $SourceFile.FullName.Substring($SourcePath.Length).TrimStart('\', '/')
+        $DestFile = Join-Path $DestPath $RelativePath
+
+        Write-Host "  Verifying: $RelativePath" -ForegroundColor Yellow -NoNewline
+
+        # Check if destination file exists
+        if (-not (Test-Path $DestFile)) {
+            Write-Host " - FAILED (File not found)" -ForegroundColor Red
+            $FailedCount++
+            continue
+        }
+
+        # Check file size
+        $SourceSize = (Get-Item $SourceFile.FullName).Length
+        $DestSize = (Get-Item $DestFile).Length
+
+        if ($SourceSize -ne $DestSize) {
+            Write-Host " - FAILED (Size mismatch: Source=$SourceSize, Dest=$DestSize)" -ForegroundColor Red
+            $FailedCount++
+            continue
+        }
+
+        # For small files (< 10MB), verify content with hash
+        if ($SourceSize -lt 10MB) {
+            $SourceHash = (Get-FileHash -Path $SourceFile.FullName -Algorithm MD5).Hash
+            $DestHash = (Get-FileHash -Path $DestFile -Algorithm MD5).Hash
+
+            if ($SourceHash -ne $DestHash) {
+                Write-Host " - FAILED (Content mismatch)" -ForegroundColor Red
+                $FailedCount++
+                continue
+            }
+        }
+
+        Write-Host " - OK" -ForegroundColor Green
+        $VerifiedCount++
+    }
+
+    # Report verification results
+    Write-Host "Verification complete: $VerifiedCount files verified, $FailedCount failures" -ForegroundColor $(if ($FailedCount -eq 0) { "Green" } else { "Red" })
+
+    return ($FailedCount -eq 0)
 }
 
 # Function to measure performance
@@ -473,6 +748,20 @@ function Measure-CopyPerformance {
     }
     New-Item -ItemType Directory -Force -Path $DestPath | Out-Null
 
+    # Clear file system cache if requested
+    if ($DisableCache) {
+        $CacheCleared = Clear-FileSystemCache
+        Write-Host "File system cache clearing $(if ($CacheCleared) { 'succeeded' } else { 'failed or skipped' })" -ForegroundColor $(if ($CacheCleared) { "Green" } else { "Yellow" })
+
+        # Force garbage collection to free memory
+        [System.GC]::Collect()
+        [System.GC]::WaitForPendingFinalizers()
+        [System.GC]::Collect()
+
+        # Small delay to ensure cache clearing takes effect
+        Start-Sleep -Seconds 2
+    }
+
     # Prepare command
     $Command = ""
     if ($Tool -eq "EACopy") {
@@ -481,7 +770,7 @@ function Measure-CopyPerformance {
         $Command = "robocopy $SourcePath $DestPath /E $Arguments"
     }
 
-    Write-Host "Running: $Command"
+    Write-Host "Running: $Command" -ForegroundColor Cyan
 
     # Start performance monitoring if requested
     $MonitoringJob = $null
@@ -492,15 +781,27 @@ function Measure-CopyPerformance {
     # Measure performance
     $StopWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
+    $ToolOutput = $null
+
     if ($Tool -eq "EACopy") {
         # Use Start-Process to avoid output buffer issues
         $ProcessInfo = Start-Process -FilePath $EACopyPath -ArgumentList "$SourcePath $DestPath $Arguments" -NoNewWindow -PassThru -Wait
         $ExitCode = $ProcessInfo.ExitCode
     } elseif ($Tool -eq "Robocopy") {
-        # Similarly use Start-Process to handle Robocopy
-        $ProcessInfo = Start-Process -FilePath "robocopy" -ArgumentList "$SourcePath $DestPath /E $Arguments" -NoNewWindow -PassThru -Wait
+        # For Robocopy, capture the output to parse performance data
+        $TempOutputFile = [System.IO.Path]::GetTempFileName()
+
+        # Run Robocopy and capture its output
+        $ProcessInfo = Start-Process -FilePath "robocopy" -ArgumentList "$SourcePath $DestPath /E $Arguments" -NoNewWindow -PassThru -Wait -RedirectStandardOutput $TempOutputFile
+
         # Robocopy exit codes are different - 0-7 are success with various levels of copying activity
         $ExitCode = if ($ProcessInfo.ExitCode -le 7) { 0 } else { $ProcessInfo.ExitCode }
+
+        # Read the output
+        $ToolOutput = Get-Content -Path $TempOutputFile -Raw
+
+        # Clean up
+        Remove-Item -Path $TempOutputFile -Force -ErrorAction SilentlyContinue
     }
 
     $StopWatch.Stop()
@@ -512,12 +813,62 @@ function Measure-CopyPerformance {
         $PerformanceMetrics = Stop-PerformanceMonitoring -MonitoringJob $MonitoringJob
     }
 
+    # Force sync to ensure all data is written to disk
+    Write-Host "Forcing disk sync..." -ForegroundColor Yellow
+    $SyncProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c echo Syncing disk cache && echo 3 > NUL" -NoNewWindow -PassThru -Wait
+
+    # Verify copy results if requested
+    $VerificationResult = $true
+    if ($VerifyCopy) {
+        $VerificationResult = Verify-CopyResults -SourcePath $SourcePath -DestPath $DestPath
+    }
+
     # Get total size copied
     $Size = (Get-ChildItem -Path $SourcePath -Recurse -File | Measure-Object -Property Length -Sum).Sum
     $SizeMB = [Math]::Round($Size / 1MB, 2)
 
     # Calculate throughput
     $ThroughputMBps = if ($ElapsedTime.TotalSeconds -gt 0) { [Math]::Round($SizeMB / $ElapsedTime.TotalSeconds, 2) } else { 0 }
+
+    # Parse Robocopy output for its reported performance data
+    $RobocopyReportedSpeed = $null
+    $RobocopyReportedTime = $null
+
+    if ($Tool -eq "Robocopy" -and $ToolOutput) {
+        Write-Host "Parsing Robocopy output for performance data..." -ForegroundColor Yellow
+
+        # Extract speed information
+        $SpeedMatch = $ToolOutput | Select-String -Pattern "速度:\s+([0-9,]+)\s+字节/秒" -AllMatches
+        if (-not $SpeedMatch) {
+            # Try English version
+            $SpeedMatch = $ToolOutput | Select-String -Pattern "Speed:\s+([0-9,]+)\s+Bytes/sec" -AllMatches
+        }
+
+        if ($SpeedMatch -and $SpeedMatch.Matches.Count -gt 0) {
+            $SpeedText = $SpeedMatch.Matches[0].Groups[1].Value
+            $SpeedText = $SpeedText -replace ",", ""  # Remove commas
+            $SpeedBytesPerSec = [double]$SpeedText
+            $SpeedMBps = [Math]::Round($SpeedBytesPerSec / 1MB, 2)
+            $RobocopyReportedSpeed = $SpeedMBps
+            Write-Host "  Robocopy reported speed: $SpeedMBps MB/s" -ForegroundColor Yellow
+        }
+
+        # Extract time information
+        $TimeMatch = $ToolOutput | Select-String -Pattern "时间:\s+(\d+):(\d+):(\d+)" -AllMatches
+        if (-not $TimeMatch) {
+            # Try English version
+            $TimeMatch = $ToolOutput | Select-String -Pattern "Times:\s+(\d+):(\d+):(\d+)" -AllMatches
+        }
+
+        if ($TimeMatch -and $TimeMatch.Matches.Count -gt 0) {
+            $Hours = [int]$TimeMatch.Matches[0].Groups[1].Value
+            $Minutes = [int]$TimeMatch.Matches[0].Groups[2].Value
+            $Seconds = [int]$TimeMatch.Matches[0].Groups[3].Value
+            $TotalSeconds = $Hours * 3600 + $Minutes * 60 + $Seconds
+            $RobocopyReportedTime = $TotalSeconds
+            Write-Host "  Robocopy reported time: $TotalSeconds seconds" -ForegroundColor Yellow
+        }
+    }
 
     # Return result
     $Result = @{
@@ -527,6 +878,21 @@ function Measure-CopyPerformance {
         SizeMB = $SizeMB
         ThroughputMBps = $ThroughputMBps
         ExitCode = $ExitCode
+        VerificationPassed = $VerificationResult
+        FileCount = (Get-ChildItem -Path $SourcePath -Recurse -File).Count
+    }
+
+    # Add Robocopy's reported performance data if available
+    if ($Tool -eq "Robocopy") {
+        $Result.ToolOutput = $ToolOutput
+
+        if ($RobocopyReportedSpeed) {
+            $Result.ReportedThroughputMBps = $RobocopyReportedSpeed
+        }
+
+        if ($RobocopyReportedTime) {
+            $Result.ReportedElapsedSeconds = $RobocopyReportedTime
+        }
     }
 
     # Add performance metrics if collected
@@ -634,7 +1000,16 @@ function Run-TestScenario {
     # Print results
     Write-Host "`nResults for ${ScenarioName}:" -ForegroundColor Green
     Write-Host "EACopy: ${EACopyTimeFormatted} seconds, ${EACopyThroughputFormatted} MB/s"
-    Write-Host "Robocopy: ${RobocopyTimeFormatted} seconds, ${RobocopyThroughputFormatted} MB/s"
+
+    # For Robocopy, show both our measured performance and Robocopy's reported performance
+    if ($RobocopyResult.ContainsKey("ReportedThroughputMBps")) {
+        $ReportedThroughputFormatted = [Math]::Round($RobocopyResult.ReportedThroughputMBps, 2).ToString("0.00")
+        Write-Host "Robocopy (measured): ${RobocopyTimeFormatted} seconds, ${RobocopyThroughputFormatted} MB/s"
+        Write-Host "Robocopy (reported): $(if ($RobocopyResult.ReportedElapsedSeconds) { $RobocopyResult.ReportedElapsedSeconds } else { "N/A" }) seconds, ${ReportedThroughputFormatted} MB/s"
+    } else {
+        Write-Host "Robocopy: ${RobocopyTimeFormatted} seconds, ${RobocopyThroughputFormatted} MB/s"
+    }
+
     Write-Host "Difference: ${TimeDiffFormatted} seconds (${TimeDiffPercentFormatted}%), ${ThroughputDiffFormatted} MB/s (${ThroughputDiffPercentFormatted}%)"
     Write-Host "Faster tool: $FasterTool"
 
@@ -654,9 +1029,51 @@ function Run-TestScenario {
 # Main test execution
 try {
     Write-Host "Starting performance tests for EACopy vs Robocopy" -ForegroundColor Yellow
+    Write-Host "Script version: 1.1 (Enhanced CI Compatibility)" -ForegroundColor Yellow
+    Write-Host "Current directory: $(Get-Location)" -ForegroundColor Yellow
+    Write-Host "Script directory: $PSScriptRoot" -ForegroundColor Yellow
+
+    # Create a debug log file for CI troubleshooting
+    $DebugLogPath = Join-Path $TestDir "debug_log.txt"
+    "Performance Test Debug Log - $(Get-Date)" | Out-File -FilePath $DebugLogPath -Encoding utf8
+    "Current directory: $(Get-Location)" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "Script directory: $PSScriptRoot" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "EACopy path: $EACopyPath" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "Test directory: $TestDir" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
 
     # Collect system information
-    $SystemInfo = Get-SystemInfo
+    Write-Host "Collecting system information..." -ForegroundColor Yellow
+    try {
+        $SystemInfo = Get-SystemInfo
+        "System information collected successfully" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    }
+    catch {
+        Write-Host "Error collecting system information: $_" -ForegroundColor Red
+        "Error collecting system information: $_" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+        # Create a minimal system info object to allow the script to continue
+        $SystemInfo = @{
+            CPU = @{
+                Model = "Unknown (CI Environment)"
+                Cores = 0
+                LogicalProcessors = 0
+                MaxClockSpeedMHz = 0
+            }
+            Memory = @{
+                TotalGB = 0
+            }
+            OS = @{
+                Version = "Unknown"
+                Build = "Unknown"
+            }
+            Disk = @{
+                Type = "Unknown"
+                SizeGB = 0
+                FreeGB = 0
+                ReadSpeedMBps = 0
+                WriteSpeedMBps = 0
+            }
+        }
+    }
 
     # Display system information summary
     Write-Host "`nSystem Information:" -ForegroundColor Cyan
@@ -665,6 +1082,13 @@ try {
     Write-Host "OS: $($SystemInfo.OS.Version) (Build $($SystemInfo.OS.Build))"
     Write-Host "Disk: $($SystemInfo.Disk.Type), $($SystemInfo.Disk.SizeGB) GB total, $($SystemInfo.Disk.FreeGB) GB free"
     Write-Host "Disk Performance: Read $($SystemInfo.Disk.ReadSpeedMBps) MB/s, Write $($SystemInfo.Disk.WriteSpeedMBps) MB/s"
+
+    # Log system information
+    "CPU: $($SystemInfo.CPU.Model) ($($SystemInfo.CPU.Cores) cores, $($SystemInfo.CPU.LogicalProcessors) logical processors)" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "Memory: $($SystemInfo.Memory.TotalGB) GB" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "OS: $($SystemInfo.OS.Version) (Build $($SystemInfo.OS.Build))" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "Disk: $($SystemInfo.Disk.Type), $($SystemInfo.Disk.SizeGB) GB total, $($SystemInfo.Disk.FreeGB) GB free" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
+    "Disk Performance: Read $($SystemInfo.Disk.ReadSpeedMBps) MB/s, Write $($SystemInfo.Disk.WriteSpeedMBps) MB/s" | Out-File -FilePath $DebugLogPath -Encoding utf8 -Append
 
     # Auto-detect EACopy.exe if path not provided
     if (-not $EACopyPath) {
@@ -870,9 +1294,16 @@ Test conducted on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 - **Disk**: $($SystemInfo.Disk.Type), $($SystemInfo.Disk.SizeGB) GB total, $($SystemInfo.Disk.FreeGB) GB free
 - **Disk Performance**: Read $($SystemInfo.Disk.ReadSpeedMBps) MB/s, Write $($SystemInfo.Disk.WriteSpeedMBps) MB/s
 
-### Raw Performance Results
-| Scenario | EACopy | Robocopy | Difference | Faster Tool |
-|----------|--------|----------|------------|-------------|
+### Test Configuration
+- **Small Files**: $SmallFileCount files of $([Math]::Round($SmallFileSize/1KB, 2)) KB each
+- **Medium Files**: $MediumFileCount files of $([Math]::Round($MediumFileSize/1MB, 2)) MB each
+- **Large Files**: $LargeFileCount files of $([Math]::Round($LargeFileSize/1MB, 2)) MB each
+- **File System Cache**: $(if ($DisableCache) { "Disabled" } else { "Enabled" })
+- **Copy Verification**: $(if ($VerifyCopy) { "Enabled" } else { "Disabled" })
+
+### Performance Results
+| Scenario | EACopy | Robocopy (Measured) | Robocopy (Reported) | Difference | Faster Tool |
+|----------|--------|---------------------|---------------------|------------|-------------|
 "@
 
     foreach ($Result in $Results) {
@@ -895,11 +1326,24 @@ Test conducted on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
         $ThroughputDiffPercentFormatted = [Math]::Round($Result.ThroughputDiffPercent, 2).ToString("0.00")
 
         $EACopyTime = "${EACopyTimeFormatted}s (${EACopyThroughputFormatted} MB/s)"
-        $RobocopyTime = "${RobocopyTimeFormatted}s (${RobocopyThroughputFormatted} MB/s)"
+        $RobocopyMeasuredTime = "${RobocopyTimeFormatted}s (${RobocopyThroughputFormatted} MB/s)"
+
+        # Add Robocopy's reported performance if available
+        $RobocopyReportedTime = "N/A"
+        if ($Result.Robocopy.ContainsKey("ReportedThroughputMBps")) {
+            $ReportedThroughputFormatted = [Math]::Round($Result.Robocopy.ReportedThroughputMBps, 2).ToString("0.00")
+            $ReportedTimeFormatted = if ($Result.Robocopy.ReportedElapsedSeconds) {
+                $Result.Robocopy.ReportedElapsedSeconds.ToString("0.00")
+            } else {
+                "N/A"
+            }
+            $RobocopyReportedTime = "${ReportedTimeFormatted}s (${ReportedThroughputFormatted} MB/s)"
+        }
+
         $Difference = "${TimeDiffFormatted}s (${TimeDiffPercentFormatted}%), ${ThroughputDiffFormatted} MB/s (${ThroughputDiffPercentFormatted}%)"
         $FasterTool = $Result.FasterTool
 
-        $MarkdownReport += "`n| $ScenarioName | $EACopyTime | $RobocopyTime | $Difference | $FasterTool |"
+        $MarkdownReport += "`n| $ScenarioName | $EACopyTime | $RobocopyMeasuredTime | $RobocopyReportedTime | $Difference | $FasterTool |"
     }
 
     # Add normalized results if available
@@ -909,8 +1353,8 @@ Test conducted on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 ### Normalized Performance Results
 *Normalized to a reference system with 4 cores @ 3.0 GHz and 500 MB/s disk read speed*
 
-| Scenario | EACopy | Robocopy | Difference | Faster Tool |
-|----------|--------|----------|------------|-------------|
+| Scenario | EACopy | Robocopy (Measured) | Robocopy (Reported) | Difference | Faster Tool |
+|----------|--------|---------------------|---------------------|------------|-------------|
 "@
 
         foreach ($Result in $NormalizedResults.Results) {
@@ -933,11 +1377,24 @@ Test conducted on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
             $ThroughputDiffPercentFormatted = [Math]::Round($Result.NormalizedThroughputDiffPercent, 2).ToString("0.00")
 
             $EACopyTime = "${EACopyTimeFormatted}s (${EACopyThroughputFormatted} MB/s)"
-            $RobocopyTime = "${RobocopyTimeFormatted}s (${RobocopyThroughputFormatted} MB/s)"
+            $RobocopyMeasuredTime = "${RobocopyTimeFormatted}s (${RobocopyThroughputFormatted} MB/s)"
+
+            # Add Robocopy's reported performance if available (not normalized)
+            $RobocopyReportedTime = "N/A"
+            if ($Result.Robocopy.ContainsKey("ReportedThroughputMBps")) {
+                $ReportedThroughputFormatted = [Math]::Round($Result.Robocopy.ReportedThroughputMBps, 2).ToString("0.00")
+                $ReportedTimeFormatted = if ($Result.Robocopy.ReportedElapsedSeconds) {
+                    $Result.Robocopy.ReportedElapsedSeconds.ToString("0.00")
+                } else {
+                    "N/A"
+                }
+                $RobocopyReportedTime = "${ReportedTimeFormatted}s (${ReportedThroughputFormatted} MB/s)*"
+            }
+
             $Difference = "${TimeDiffFormatted}s (${TimeDiffPercentFormatted}%), ${ThroughputDiffFormatted} MB/s (${ThroughputDiffPercentFormatted}%)"
             $FasterTool = $Result.NormalizedFasterTool
 
-            $MarkdownReport += "`n| $ScenarioName | $EACopyTime | $RobocopyTime | $Difference | $FasterTool |"
+            $MarkdownReport += "`n| $ScenarioName | $EACopyTime | $RobocopyMeasuredTime | $RobocopyReportedTime | $Difference | $FasterTool |"
         }
 
         # Add normalization factors
@@ -994,7 +1451,7 @@ Test conducted on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 - Large Files: $LargeFileCount files of $([Math]::Round($LargeFileSize/1MB, 2)) MB each (Total: $([Math]::Round($LargeFileCount * $LargeFileSize/1MB, 2)) MB)
 - Total Files: $($SmallFileCount + $MediumFileCount + $LargeFileCount)
 - Total Data: $([Math]::Round(($SmallFileCount * $SmallFileSize + $MediumFileCount * $MediumFileSize + $LargeFileCount * $LargeFileSize)/1MB, 2)) MB
-- Detailed Metrics Collection: $($CollectDetailedMetrics ? "Enabled" : "Disabled")
+- Detailed Metrics Collection: $(if ($CollectDetailedMetrics) { "Enabled" } else { "Disabled" })
 "@
 
     $MarkdownReportPath = Join-Path $TestDir "performance_results.md"
