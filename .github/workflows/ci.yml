@@ -83,9 +83,14 @@ jobs:
 
     - name: Create Directories
       run: |
-        mkdir -p perf_test
-        mkdir -p performance_history
-        mkdir -p performance_trends
+        # Use PowerShell's New-Item command to create directories, which won't error if directories already exist
+        New-Item -ItemType Directory -Path "perf_test" -Force -ErrorAction SilentlyContinue | Out-Null
+        New-Item -ItemType Directory -Path "performance_history" -Force -ErrorAction SilentlyContinue | Out-Null
+        New-Item -ItemType Directory -Path "performance_trends" -Force -ErrorAction SilentlyContinue | Out-Null
+
+        # Display created directories
+        Write-Host "Directory structure after creation:" -ForegroundColor Green
+        Get-ChildItem -Path "." -Directory | ForEach-Object { Write-Host "  - $($_.FullName)" }
 
     - name: Get Commit ID
       id: get_commit
@@ -186,19 +191,24 @@ jobs:
         # Set a timeout to prevent the test from running too long
         $job = Start-Job -ScriptBlock {
             param($EACopyPath, $CommitId)
-            # Create test directory inside the job too (with better error handling)
+            # Create test directories using more reliable methods
             $DirectoriesToCreate = @("./perf_test", "./performance_history")
             foreach ($Dir in $DirectoriesToCreate) {
-                if (-not (Test-Path $Dir)) {
-                    Write-Host "Creating directory in job: $Dir"
+                Write-Host "Ensuring directory exists in job: $Dir"
+                try {
+                    # Use -Force parameter to ensure no errors even if directory already exists
+                    New-Item -ItemType Directory -Path $Dir -Force -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "Directory ready: $Dir" -ForegroundColor Green
+                } catch {
+                    Write-Host "Warning: Issue with directory $Dir - $_" -ForegroundColor Yellow
+                    # Try using absolute path as fallback
                     try {
-                        New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+                        $AbsPath = Join-Path (Get-Location).Path $Dir
+                        New-Item -ItemType Directory -Path $AbsPath -Force -ErrorAction SilentlyContinue | Out-Null
+                        Write-Host "Created with absolute path: $AbsPath" -ForegroundColor Green
                     } catch {
-                        Write-Host "Warning: Failed to create directory in job $Dir - $_"
-                        # Continue anyway
+                        Write-Host "Critical: Could not create directory even with absolute path - $_" -ForegroundColor Red
                     }
-                } else {
-                    Write-Host "Directory in job already exists: $Dir"
                 }
             }
 
@@ -220,19 +230,24 @@ jobs:
 
     - name: Generate Performance Trends
       run: |
-        # Ensure directories exist before running script
+        # Ensure directories exist using more reliable methods
         $TrendsDirectories = @("./performance_history", "./performance_trends")
         foreach ($Dir in $TrendsDirectories) {
-            if (-not (Test-Path $Dir)) {
-                Write-Host "Creating trends directory: $Dir" -ForegroundColor Yellow
+            Write-Host "Ensuring trends directory exists: $Dir" -ForegroundColor Yellow
+            try {
+                # Use -Force parameter to ensure no errors even if directory already exists
+                New-Item -ItemType Directory -Path $Dir -Force -ErrorAction SilentlyContinue | Out-Null
+                Write-Host "Trends directory ready: $Dir" -ForegroundColor Green
+            } catch {
+                Write-Host "Warning: Issue with trends directory $Dir - $_" -ForegroundColor Yellow
+                # Try using absolute path as fallback
                 try {
-                    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
-                    Write-Host "Created trends directory: $Dir" -ForegroundColor Green
+                    $AbsPath = Join-Path (Get-Location).Path $Dir
+                    New-Item -ItemType Directory -Path $AbsPath -Force -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "Created with absolute path: $AbsPath" -ForegroundColor Green
                 } catch {
-                    Write-Host "Warning: Failed to create trends directory $Dir - $_" -ForegroundColor Red
+                    Write-Host "Critical: Could not create directory even with absolute path - $_" -ForegroundColor Red
                 }
-            } else {
-                Write-Host "Trends directory already exists: $Dir" -ForegroundColor Gray
             }
         }
 
