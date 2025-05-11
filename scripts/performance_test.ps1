@@ -283,10 +283,29 @@ try {
     Write-Host "`nPerformance test results saved to: $JsonOutputPath" -ForegroundColor Green
 
     # Save to history directory if specified
-    if ($HistoryDir -and (Test-Path $HistoryDir -PathType Container)) {
+    if ($HistoryDir) {
         # Create history directory if it doesn't exist
         if (-not (Test-Path $HistoryDir)) {
-            New-Item -ItemType Directory -Force -Path $HistoryDir | Out-Null
+            try {
+                Write-Host "Creating history directory: $HistoryDir" -ForegroundColor Yellow
+                New-Item -ItemType Directory -Path $HistoryDir -Force -ErrorAction Stop | Out-Null
+                Write-Host "Successfully created history directory" -ForegroundColor Green
+            } catch {
+                Write-Host "Warning: Failed to create history directory: $_" -ForegroundColor Red
+                # Create a fallback directory in the current location
+                $HistoryDir = "./history_fallback"
+                if (-not (Test-Path $HistoryDir)) {
+                    try {
+                        New-Item -ItemType Directory -Path $HistoryDir -Force | Out-Null
+                        Write-Host "Created fallback history directory: $HistoryDir" -ForegroundColor Yellow
+                    } catch {
+                        Write-Host "Critical: Failed to create fallback history directory: $_" -ForegroundColor Red
+                        # If we can't create any directory, just use the current directory
+                        $HistoryDir = "."
+                        Write-Host "Using current directory for history" -ForegroundColor Yellow
+                    }
+                }
+            }
         }
 
         # Generate filename with timestamp and commit ID if available
