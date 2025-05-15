@@ -4,8 +4,18 @@
 #include "EACopyShared.h"
 #include <cstring>
 
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
 typedef eacopy::u64 SOCKET;
+#define EACOPY_DEFINED_SOCKET
+#endif
+
+#if !defined(_WIN32) && !defined(INVALID_SOCKET)
 #define INVALID_SOCKET  (SOCKET)(~0)
+#endif
 
 struct Guid {
     unsigned long  Data1;
