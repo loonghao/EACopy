@@ -3,7 +3,10 @@
 #pragma once
 #undef UNICODE
 #define WIN32_LEAN_AND_MEAN
+// Only define _HAS_EXCEPTIONS if it's not already defined
+#ifndef _HAS_EXCEPTIONS
 #define _HAS_EXCEPTIONS 0
+#endif
 
 #include <functional>
 #include <list>

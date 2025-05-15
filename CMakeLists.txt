@@ -1,6 +1,9 @@
 #-------------------------------------------------------------------------------------------
 # Copyright (C) Electronic Arts Inc.  All rights reserved.
 #-------------------------------------------------------------------------------------------
+# Note: This CMakeLists.txt has been modified to support integration with py-eacopy
+# and other projects that use EACopy as a library.
+#-------------------------------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.5)
 project(EACopy CXX)
 
@@ -11,11 +14,31 @@ set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "My multi config type
 # Options
 #-------------------------------------------------------------------------------------------
 option(EACOPY_BUILD_TESTS "Enable generation of build files for tests" OFF)
-option(EACOPY_BUILD_AS_LIBRARY "Build EACopy as a library for use in other projects" OFF)
-option(EACOPY_INSTALL "Install EACopy library and headers" OFF)
+option(EACOPY_BUILD_AS_LIBRARY "Build EACopy as a library for use in other projects" ON)
+option(EACOPY_INSTALL "Install EACopy library and headers" ON)
 
 if (WIN32)
 	SET(CMAKE_CXX_FLAGS "/GR-")
+
+	# Add Windows-specific compile options
+	add_compile_options(
+		/W3     # Warning level 3
+		/MP     # Multi-processor compilation
+		/wd4244 # Disable warning C4244: conversion from 'double' to 'float'
+		/wd4267 # Disable warning C4267: conversion from 'size_t' to 'int'
+		/wd4305 # Disable warning C4305: truncation from 'double' to 'float'
+		/bigobj # Support for large object files
+	)
+
+	# Use dynamic runtime library (MD/MDd) instead of static (MT/MTd)
+	# This is critical for compatibility with Python extensions
+	foreach(flag_var
+		CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+		CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE)
+		if(${flag_var} MATCHES "/MT")
+			string(REGEX REPLACE "/MT" "/MD" ${flag_var} "${${flag_var}}")
+		endif()
+	endforeach()
 endif(WIN32)
 
 if (UNIX)
@@ -209,7 +232,19 @@ if(EACOPY_BUILD_AS_LIBRARY)
 	endif (UNIX)
 
 	# Add compile definitions
-	target_compile_definitions(EACopyLib PUBLIC EACOPY_ALLOW_DELTA_COPY)
+	target_compile_definitions(EACopyLib PUBLIC
+			EACOPY_ALLOW_DELTA_COPY
+			$<$<BOOL:${WIN32}>:NOMINMAX>
+			$<$<BOOL:${WIN32}>:WIN32_LEAN_AND_MEAN>
+		)
+
+		# Add Windows-specific compile options for EACopyLib
+		if(MSVC)
+			target_compile_options(EACopyLib PRIVATE
+				$<$<CONFIG:Debug>:/MDd>
+				$<$<CONFIG:Release>:/MD>
+			)
+		endif()
 endif()
 
 #-------------------------------------------------------------------------------------------
