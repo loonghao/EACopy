@@ -10,5 +10,18 @@ set(EACOPY_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/eacopy")
 # Check dependencies
 include(CMakeFindDependencyMacro)
 
+# Find system dependencies if needed
+if(@EACOPY_USE_SYSTEM_ZSTD@)
+    find_dependency(zstd)
+endif()
+
+if(@EACOPY_USE_SYSTEM_LZMA@)
+    find_dependency(LibLZMA)
+endif()
+
+if(@EACOPY_USE_SYSTEM_XDELTA@)
+    find_dependency(xdelta)
+endif()
+
 # Set package found flag
 set(EACOPY_FOUND TRUE)

@@ -4,7 +4,7 @@
 # Note: This CMakeLists.txt has been modified to support integration with py-eacopy
 # and other projects that use EACopy as a library.
 #-------------------------------------------------------------------------------------------
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 project(EACopy CXX)
 
 # NOTE: Only used in multi-configuration environments
@@ -260,7 +260,38 @@ if(EACOPY_INSTALL)
 	)
 
 	if(EACOPY_BUILD_AS_LIBRARY)
-		# Install library
+		# Install library and dependencies
+		if(NOT EACOPY_USE_SYSTEM_ZSTD)
+			install(TARGETS libzstd_static
+				EXPORT EACopyTargets
+				LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+				ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+				RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+				INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+			)
+		endif()
+
+		if(NOT EACOPY_USE_SYSTEM_LZMA)
+			install(TARGETS lzma
+				EXPORT EACopyTargets
+				LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+				ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+				RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+				INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+			)
+		endif()
+
+		if(NOT EACOPY_USE_SYSTEM_XDELTA)
+			install(TARGETS xdelta
+				EXPORT EACopyTargets
+				LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+				ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+				RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+				INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+			)
+		endif()
+
+		# Install main library
 		install(TARGETS EACopyLib
 			EXPORT EACopyTargets
 			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
