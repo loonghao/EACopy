@@ -4,7 +4,31 @@
 # Note: This CMakeLists.txt has been modified to support integration with py-eacopy
 # and other projects that use EACopy as a library.
 #-------------------------------------------------------------------------------------------
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15)
+
+# Set CMake policy version for compatibility with older CMake files in submodules
+if(POLICY CMP0048)
+  cmake_policy(SET CMP0048 NEW)  # project() command manages VERSION variables
+endif()
+if(POLICY CMP0077)
+  cmake_policy(SET CMP0077 NEW)  # option() honors normal variables
+endif()
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 NEW)  # MSVC runtime library flags
+endif()
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)  # find_package uses <PackageName>_ROOT variables
+endif()
+
+# Set CMAKE_POLICY_DEFAULT to handle policies in subdirectories
+set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+
+# Define ZSTD_MAX_VALIDATED_CMAKE_MAJOR_VERSION and ZSTD_MAX_VALIDATED_CMAKE_MINOR_VERSION
+# to avoid issues with zstd's CMakeLists.txt
+set(ZSTD_MAX_VALIDATED_CMAKE_MAJOR_VERSION "3" CACHE STRING "ZSTD max validated CMake major version" FORCE)
+set(ZSTD_MAX_VALIDATED_CMAKE_MINOR_VERSION "26" CACHE STRING "ZSTD max validated CMake minor version" FORCE)
+
 project(EACopy CXX)
 
 # NOTE: Only used in multi-configuration environments
@@ -69,10 +93,13 @@ if(EACOPY_USE_SYSTEM_ZSTD)
     set(ZSTD_LIBRARIES zstd::zstd)
     add_library(libzstd_static ALIAS zstd::zstd)
 else()
-    set(ZSTD_BUILD_PROGRAMS OFF)
-    set(ZSTD_BUILD_SHARED OFF)
-    set(ZSTD_BUILD_TESTS OFF)
-    set(ZSTD_STATIC_LINKING_ONLY ON)
+    # Set zstd build options
+    set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "Build zstd programs" FORCE)
+    set(ZSTD_BUILD_SHARED OFF CACHE BOOL "Build zstd shared library" FORCE)
+    set(ZSTD_BUILD_TESTS OFF CACHE BOOL "Build zstd tests" FORCE)
+    set(ZSTD_STATIC_LINKING_ONLY ON CACHE BOOL "Build zstd static library only" FORCE)
+
+    # Simply use the original zstd CMakeLists.txt with our CMake policy settings
     add_subdirectory(${EACOPY_ZSTD_DIR}/build/cmake)
     if (WIN32)
         target_compile_options(libzstd_static PUBLIC "$<$<CONFIG:RELEASE>:/Oi>")

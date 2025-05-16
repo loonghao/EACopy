@@ -21,13 +21,17 @@ jobs:
     - name: Setup ccache
       uses: hendrikmuhs/ccache-action@v1.2.11
 
+    - name: Setup CMake
+      uses: jwlawson/actions-setup-cmake@v1.13
+      with:
+        cmake-version: '3.26.x'
+
     - name: Configure CMake
       run: |
         mkdir build_${{ matrix.config }}
         cd build_${{ matrix.config }}
         # Add MSG_WAITALL definition for Windows platform
-        # Disable zstd programs, shared libs and tests to avoid CMake version compatibility issues
-        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_TESTS=OFF
+        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8"
 
     - name: Build
       run: |
