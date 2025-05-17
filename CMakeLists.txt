@@ -65,16 +65,30 @@ endif (UNIX)
 # Find required packages
 find_package(zstd CONFIG REQUIRED)
 find_package(LibLZMA REQUIRED)
-find_package(xdelta3 CONFIG REQUIRED)
+
+# Create custom xdelta library since it's not available in vcpkg
+set(EACOPY_EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
+set(EACOPY_XDELTA_DIR "${EACOPY_EXTERNAL_DIR}/xdelta")
+
+# Build xdelta from source
+add_compile_definitions(SIZEOF_SIZE_T=8 SIZEOF_UNSIGNED_LONG_LONG=8 XD3_USE_LARGEFILE64=1 SECONDARY_DJW=1 SECONDARY_LZMA=1 SECONDARY_FGK=1 LZMA_API_STATIC)
+if(WIN32)
+    add_compile_definitions(_WIN32=1 XD3_WIN32=1)
+endif()
+add_subdirectory(${EACOPY_XDELTA_DIR})
+target_include_directories(xdelta PRIVATE ${LibLZMA_INCLUDE_DIRS})
+if (WIN32)
+    target_compile_options(xdelta PUBLIC "$<$<CONFIG:RELEASE>:/Oi>")
+endif(WIN32)
 
 #-------------------------------------------------------------------------------------------
 # Library definitions
 #-------------------------------------------------------------------------------------------
 
 # Set external libraries list
-set(EACOPY_ZSTD_LIB zstd::libzstd_static)
+set(EACOPY_ZSTD_LIB zstd::libzstd)
 set(EACOPY_LZMA_LIB LibLZMA::LibLZMA)
-set(EACOPY_XDELTA_LIB xdelta3::xdelta3)
+set(EACOPY_XDELTA_LIB xdelta)
 
 set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_XDELTA_LIB} ${EACOPY_LZMA_LIB})
 
@@ -183,6 +197,14 @@ if(EACOPY_INSTALL)
     )
 
     if(EACOPY_BUILD_AS_LIBRARY)
+        # Install xdelta dependency
+        install(TARGETS xdelta
+            EXPORT EACopyTargets
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        )
 
         # Install main library
         install(TARGETS EACopyLib

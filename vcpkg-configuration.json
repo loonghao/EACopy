@@ -1,14 +1,8 @@
 {
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg-configuration.schema.json",
   "default-registry": {
     "kind": "git",
     "repository": "https://github.com/microsoft/vcpkg",
-    "baseline": "c9f906554a9a7d902e4b1abb50b4c0d51a75ca50"
-  },
-  "registries": [
-    {
-      "kind": "filesystem",
-      "path": "vcpkg-ports",
-      "packages": ["xdelta3"]
-    }
-  ]
+    "baseline": "f26ec398c25c4980f33a50391f00a75f7ad62ef7"
+  }
 }
