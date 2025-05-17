@@ -1,3 +1,4 @@
 [submodule "external/xdelta"]
 	path = external/xdelta
-	url = https://github.com/honkstar1/xdelta.git
+	url = https://github.com/loonghao/xdelta.git
+	branch = release3_1_apl
