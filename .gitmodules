@@ -1,9 +1,3 @@
-[submodule "external/zstd"]
-	path = external/zstd
-	url = git@github.com:facebook/zstd.git
-[submodule "external/lzma"]
-	path = external/lzma
-	url = https://github.com/chemfiles/lzma.git
 [submodule "external/xdelta"]
 	path = external/xdelta
 	url = https://github.com/honkstar1/xdelta.git
