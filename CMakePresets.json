@@ -1,0 +1,43 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "vcpkg-base",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "vcpkg-windows",
+      "inherits": "vcpkg-base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_VERSION": "10.0.19041.0"
+      }
+    },
+    {
+      "name": "vcpkg-linux",
+      "inherits": "vcpkg-base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "vcpkg-windows",
+      "configuration": "Debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "vcpkg-windows",
+      "configuration": "Release"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "eacopy",
+  "version": "1.0.0",
+  "description": "EACopy is a file copy utility with delta compression capabilities",
+  "homepage": "https://github.com/loonghao/EACopy",
+  "license": "MIT",
+  "dependencies": [
+    "zstd",
+    "liblzma",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}
