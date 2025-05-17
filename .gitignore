@@ -56,3 +56,8 @@ CMakeSettings.json
 Release/
 Debug/
 build/
+
+# vcpkg files
+vcpkg_installed/
+.vscode/settings.json
+CMakeUserPresets.json
