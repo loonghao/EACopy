@@ -79,16 +79,24 @@ scripts\install_vcpkg.bat
 ```
 
 This will:
-- Clone the vcpkg repository
+- Clone the vcpkg repository (default location: C:\vcpkg)
 - Bootstrap vcpkg
 - Set the VCPKG_ROOT environment variable
+
+If you want to use a different location for vcpkg, you can set the VCPKG_ROOT environment variable before running the script:
+
+```batch
+set VCPKG_ROOT=D:\path\to\vcpkg
+scripts\install_vcpkg.bat
+```
 
 Alternatively, you can manually install vcpkg:
 
 ```batch
-git clone https://github.com/microsoft/vcpkg.git
-cd vcpkg
+git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+cd C:\vcpkg
 bootstrap-vcpkg.bat
+setx VCPKG_ROOT C:\vcpkg
 ```
 
 ### Building EACopy
@@ -98,6 +106,12 @@ Use the provided build script:
 ```batch
 scripts\build.bat
 ```
+
+> **Note**: If you just installed vcpkg using the install_vcpkg.bat script, you may need to restart your command prompt for the VCPKG_ROOT environment variable to take effect. Alternatively, you can manually set it for the current session:
+> ```batch
+> set VCPKG_ROOT=C:\vcpkg
+> scripts\build.bat
+> ```
 
 Or manually:
 
