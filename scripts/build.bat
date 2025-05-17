@@ -29,6 +29,19 @@ if not exist "%VCPKG_ROOT%\vcpkg.exe" (
 
 echo Using vcpkg from: %VCPKG_ROOT%
 
+:: Check if build directory exists and ask to clean it
+if exist "build" (
+    echo.
+    echo Build directory already exists. It's recommended to clean it before building with vcpkg.
+    choice /C YN /M "Do you want to clean the build directory"
+    if errorlevel 2 goto :skip_clean
+    if errorlevel 1 (
+        echo Cleaning build directory...
+        rmdir /S /Q build
+    )
+)
+
+:skip_clean
 :: Create build directory
 @mkdir build 2>nul
 @pushd build
