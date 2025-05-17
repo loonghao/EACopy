@@ -1,0 +1,16 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Find dependencies
+find_dependency(LibLZMA)
+
+# Include targets file
+include("${CMAKE_CURRENT_LIST_DIR}/xdelta3-targets.cmake")
+
+# Define exported targets
+set(XDELTA3_LIBRARIES xdelta3::xdelta3)
+set(XDELTA3_INCLUDE_DIRS "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/xdelta3")
+
+# Set package found flag
+set(XDELTA3_FOUND TRUE)

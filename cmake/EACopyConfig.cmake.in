@@ -13,6 +13,7 @@ include(CMakeFindDependencyMacro)
 # Find vcpkg dependencies
 find_dependency(zstd CONFIG)
 find_dependency(LibLZMA)
+find_dependency(xdelta3 CONFIG)
 
 # Set package found flag
 set(EACOPY_FOUND TRUE)

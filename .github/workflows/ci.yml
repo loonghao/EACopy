@@ -15,18 +15,22 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
     - name: Setup ccache
       uses: hendrikmuhs/ccache-action@v1.2.11
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgGitCommitId: 'c9f906554a9a7d902e4b1abb50b4c0d51a75ca50'
 
     - name: Configure CMake
       run: |
         mkdir build_${{ matrix.config }}
         cd build_${{ matrix.config }}
         # Add MSG_WAITALL definition for Windows platform
-        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8"
+        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8" -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake"
 
     - name: Build
       run: |
@@ -64,8 +68,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        submodules: recursive
         fetch-depth: 0  # Fetch all history for commit info
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgGitCommitId: 'c9f906554a9a7d902e4b1abb50b4c0d51a75ca50'
 
     - name: Download Release Build
       uses: actions/download-artifact@v4

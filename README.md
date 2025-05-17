@@ -1,7 +1,7 @@
 # News for covid-19 times
 
 We have added support for having EACopyService sit on another machine than the network share to enable environments where the network share machine is not running windows (like NetApp etc). This means that anyone can spin up an EACopyService next to the network share and then use "EACopy.exe ... /SERVERADDR \<machine-with-service\> /C" to speed up transfers using zstd compression from the office to your home. Very simple setup.
-	
+
 # EACopy
 
 EACopy is an alternative to Robocopy for copying files from one location to another. The main reason EACopy was created was to be able to provide text files containing the files/directories to copy. The second reason was to improve performance when copying large amounts of data to network share where the same files are often copied over and over again but to different destinations on the same network share. (example: \\myserver\builds\myapp\version1\, \\myserver\builds\myapp\version2\, \\myserver\builds\myapp\version3\)
@@ -12,7 +12,7 @@ EACopyService is a service that can be started on any windows based server. It a
 
 Using EACopyService we've seen builds that has a very small delta from previous builds go down in copy-time from ~2 minutes to 1 second :-)
 
-When EACopy starts copying to a network share it also tries to connect to an EACopyService. If there is no server it behaves just like Robocopy using smb. If it finds a service it switches over to do communication with the service instead of smb. Before copying a file it uses the same criterias as robocopy to compute the key of the file, the key is sent over to EACopyService together with destination path. EACopyService keeps track of all the files it has copied since it started by key and destination. If EACopyService already has the key it will check so the file still exists and has the same key, if the file is still valid it just creates a hardlink for the new file to the old file and return to the EACopy client that the file is already copied. 
+When EACopy starts copying to a network share it also tries to connect to an EACopyService. If there is no server it behaves just like Robocopy using smb. If it finds a service it switches over to do communication with the service instead of smb. Before copying a file it uses the same criterias as robocopy to compute the key of the file, the key is sent over to EACopyService together with destination path. EACopyService keeps track of all the files it has copied since it started by key and destination. If EACopyService already has the key it will check so the file still exists and has the same key, if the file is still valid it just creates a hardlink for the new file to the old file and return to the EACopy client that the file is already copied.
 If the server doesn't have the key it asks the EACopy client to write the new file. If compression is enabled EACopy will compress and send the data to the service which will write it to the share. If compression is not enabled EACopyService will ask the client to copy the file directly to the share using smb. It self-balance compression based on throughput of uncompressed data. If network is fast it will do less compression, if it for some reason is contended it will do more compression.
 
 Note that the link-to-old-file feature is on a per-file basis so if your files are zipped up to some big archives with one changed file in it, it will still copy these files even though only 1 byte diffed from previous copy. This might be a feature added in the future.
@@ -31,12 +31,12 @@ Here's an example on how the summary of a copy could look like when using the EA
    ConnectTime:      89ms
 
    Server found and used!
-```  
+```
 
-## Documentation  
-[EACopy usage](doc/Usage.md)  
-[Technical documentation](doc/TechDoc.md)  
-[Todos](doc/Todo.md)  
+## Documentation
+[EACopy usage](doc/Usage.md)
+[Technical documentation](doc/TechDoc.md)
+[Todos](doc/Todo.md)
 
 ## Credits
 EACopy was implemented by Henrik Karlsson. Thanks to Roberto Parolin for setting up cmake and github.
@@ -60,31 +60,60 @@ Your pull request should:
 
 ## Building
 
-First you need to make sure that you have the git submodules cloned. This can be done using ""git clone ---recurse-submodules". So full command line "git clone --recurse-submodules https://github.com/electronicarts/EACopy.git"
+EACopy now uses vcpkg to manage third-party dependencies (zstd, liblzma, xdelta3). This simplifies the build process and eliminates the need for git submodules.
 
-EACopy uses the defacto standard CMake build system.
+### Prerequisites
 
-As an example, look at the "build.bat" file in the scripts folder for how to build the library and build/run the unit tests.
+- Windows operating system
+- Visual Studio 2022 or later
+- CMake 3.15 or later
+- Git
+- vcpkg package manager
+
+### Installing vcpkg
+
+If you don't have vcpkg installed, you can use the provided script:
+
+```batch
+scripts\install_vcpkg.bat
+```
+
+This will:
+- Clone the vcpkg repository
+- Bootstrap vcpkg
+- Set the VCPKG_ROOT environment variable
+
+Alternatively, you can manually install vcpkg:
+
+```batch
+git clone https://github.com/microsoft/vcpkg.git
+cd vcpkg
+bootstrap-vcpkg.bat
+```
+
+### Building EACopy
+
+Use the provided build script:
+
+```batch
+scripts\build.bat
+```
+
+Or manually:
+
+```batch
+mkdir build
+cd build
+cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" -DEACOPY_BUILD_TESTS:BOOL=ON
+cmake --build . --config Release
+cmake --build . --config Debug
+
+cd test
+ctest -C Release -V
+ctest -C Debug
+```
+
 NOTE: to run ctest you need to run the CLI you use as Administrator! Also you must make the changes outlined in "Test Setup" and "Running the Tests" sections below.
-```
-<start at the project root>
-
-@mkdir build
-@pushd build
-
-@call cmake .. -G "Visual Studio 15 2017 Win64" -DEACOPY_BUILD_TESTS:BOOL=ON
-rem @call cmake .. -G "Visual Studio 16 2019" -A x64 -DEACOPY_BUILD_TESTS:BOOL=ON
-@call cmake --build . --config Release
-@call cmake --build . --config Debug
-
-@pushd test
-@call ctest -C Release -V
-@call ctest -C Debug
-
-@popd
-@popd
-
-```
 
 #CI System
 Travis CI for EACopy: https://travis-ci.org/github/electronicarts/EACopy
@@ -123,7 +152,7 @@ Another way to set this up for ease of local development is to set these defines
 You can then set EACopyTest as your startup project in Visual Studio and debug from there, or just run EACopyTest.exe from the cmdline without parameters and it will use those folders set in the code.
 
 ## Setting up CMake with Visual Studio for Debugging
-Notes: 
+Notes:
  - You need to run Visual Studio as Admin to properly run some tests
  - Once set up make sure to set the CMake settings so EACOPY_BUILD_TESTS is set to true so the tests are generated also.
 Reference documentation for setting up CMake: https://docs.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio?view=vs-2019
