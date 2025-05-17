@@ -29,8 +29,10 @@ jobs:
       run: |
         mkdir build_${{ matrix.config }}
         cd build_${{ matrix.config }}
+        # Set VCPKG_ROOT for this step
+        $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
         # Add MSG_WAITALL definition for Windows platform
-        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8" -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8" -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
     - name: Build
       run: |

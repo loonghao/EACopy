@@ -1,13 +1,33 @@
 @echo off
 setlocal
 
-:: Check if VCPKG_ROOT is set
+:: Check if VCPKG_ROOT is set, otherwise try to find vcpkg
 if "%VCPKG_ROOT%"=="" (
-    echo VCPKG_ROOT environment variable is not set.
-    echo Please set VCPKG_ROOT to your vcpkg installation directory.
-    echo Example: set VCPKG_ROOT=C:\vcpkg
+    :: Try common locations
+    if exist "C:\vcpkg" (
+        set VCPKG_ROOT=C:\vcpkg
+        echo VCPKG_ROOT environment variable is not set.
+        echo Found vcpkg at: %VCPKG_ROOT%
+    ) else if exist "%~dp0..\..\vcpkg" (
+        set VCPKG_ROOT=%~dp0..\..\vcpkg
+        echo VCPKG_ROOT environment variable is not set.
+        echo Found vcpkg at: %VCPKG_ROOT%
+    ) else (
+        echo VCPKG_ROOT environment variable is not set and vcpkg not found in common locations.
+        echo Please run scripts\install_vcpkg.bat first or set VCPKG_ROOT manually.
+        echo Example: set VCPKG_ROOT=C:\path\to\vcpkg
+        exit /b 1
+    )
+)
+
+:: Verify vcpkg.exe exists
+if not exist "%VCPKG_ROOT%\vcpkg.exe" (
+    echo vcpkg.exe not found at %VCPKG_ROOT%
+    echo Please run scripts\install_vcpkg.bat to install vcpkg.
     exit /b 1
 )
+
+echo Using vcpkg from: %VCPKG_ROOT%
 
 :: Create build directory
 @mkdir build 2>nul
