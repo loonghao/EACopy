@@ -10,5 +10,5 @@
 // LZMA - using vcpkg
 #include <lzma.h>
 
-// XDELTA - still using local source
-#include "../external/xdelta/xdelta3/xdelta3.h"
+// XDELTA - using vcpkg custom port
+#include <xdelta3/xdelta3.h>
