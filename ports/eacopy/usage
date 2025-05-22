@@ -1,0 +1,15 @@
+EACopy provides CMake targets:
+
+    find_package(EACopy CONFIG REQUIRED)
+    target_link_libraries(main PRIVATE EACopy::EACopyLib)
+
+EACopy is a high-performance file copy utility with delta compression capabilities.
+It can be used as a library in your C++ projects for efficient file operations.
+
+Key features:
+- High-performance file copying
+- Delta compression support
+- Network acceleration
+- Cross-platform compatibility (Windows primary)
+
+For more information, visit: https://github.com/loonghao/EACopy
