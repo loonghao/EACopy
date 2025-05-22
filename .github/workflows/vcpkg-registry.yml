@@ -104,10 +104,12 @@ jobs:
     - name: Create test project
       shell: powershell
       run: |
-        Write-Host "Creating test project for triplet: ${{ matrix.triplet }}, config: ${{ matrix.config }}"
+        $triplet = "${{ matrix.triplet }}"
+        $config = "${{ matrix.config }}"
+        Write-Host "Creating test project for triplet: $triplet, config: $config"
 
         # Create a test directory
-        $testDir = "test-consumer-${{ matrix.triplet }}-${{ matrix.config }}"
+        $testDir = "test-consumer-$triplet-$config"
         New-Item -ItemType Directory -Path $testDir -Force
         Set-Location $testDir
 
@@ -160,8 +162,8 @@ jobs:
                 std::cout << "OK" << std::endl;
 
                 std::cout << "EACopy library integration test completed successfully!" << std::endl;
-                std::cout << "Triplet: ${{ matrix.triplet }}" << std::endl;
-                std::cout << "Config: ${{ matrix.config }}" << std::endl;
+                std::cout << "Triplet: " << "$triplet" << std::endl;
+                std::cout << "Config: " << "$config" << std::endl;
 
                 return 0;
             } catch (const std::exception& e) {
@@ -217,12 +219,14 @@ jobs:
     - name: Test vcpkg install
       shell: powershell
       run: |
-        $testDir = "test-consumer-${{ matrix.triplet }}-${{ matrix.config }}"
+        $triplet = "${{ matrix.triplet }}"
+        $config = "${{ matrix.config }}"
+        $testDir = "test-consumer-$triplet-$config"
         Set-Location $testDir
         $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
 
         Write-Host "Installing dependencies using vcpkg registry..."
-        Write-Host "Triplet: ${{ matrix.triplet }}"
+        Write-Host "Triplet: $triplet"
         Write-Host "VCPKG_ROOT: $env:VCPKG_ROOT"
 
         # Enable debug output if requested
@@ -232,7 +236,7 @@ jobs:
         }
 
         # Install dependencies using our registry
-        $installCmd = "& `"$env:VCPKG_ROOT/vcpkg.exe`" install --triplet ${{ matrix.triplet }} $debugFlag"
+        $installCmd = "& `"$env:VCPKG_ROOT/vcpkg.exe`" install --triplet $triplet $debugFlag"
         Write-Host "Running: $installCmd"
         Invoke-Expression $installCmd
 
@@ -246,14 +250,16 @@ jobs:
     - name: Configure and build test project
       shell: powershell
       run: |
-        $testDir = "test-consumer-${{ matrix.triplet }}-${{ matrix.config }}"
+        $triplet = "${{ matrix.triplet }}"
+        $config = "${{ matrix.config }}"
+        $testDir = "test-consumer-$triplet-$config"
         Set-Location $testDir
         $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
 
         Write-Host "Configuring CMake project..."
 
         # Configure the test project
-        $configCmd = "cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=`"$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake`" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}"
+        $configCmd = "cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=`"$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake`" -DVCPKG_TARGET_TRIPLET=$triplet"
         Write-Host "Running: $configCmd"
         Invoke-Expression $configCmd
 
@@ -265,7 +271,7 @@ jobs:
         Write-Host "Building project..."
 
         # Build the test project
-        $buildCmd = "cmake --build build --config ${{ matrix.config }} --verbose"
+        $buildCmd = "cmake --build build --config $config --verbose"
         Write-Host "Running: $buildCmd"
         Invoke-Expression $buildCmd
 
@@ -279,13 +285,15 @@ jobs:
     - name: Run tests
       shell: powershell
       run: |
-        $testDir = "test-consumer-${{ matrix.triplet }}-${{ matrix.config }}"
+        $triplet = "${{ matrix.triplet }}"
+        $config = "${{ matrix.config }}"
+        $testDir = "test-consumer-$triplet-$config"
         Set-Location $testDir
 
         Write-Host "Running integration tests..."
 
         # Find the test executable
-        $exePath = "build/${{ matrix.config }}/test_eacopy.exe"
+        $exePath = "build/$config/test_eacopy.exe"
         if (-not (Test-Path $exePath)) {
           Write-Error "Test executable not found at: $exePath"
           Get-ChildItem build -Recurse -Name "*.exe" | Write-Host
@@ -309,7 +317,7 @@ jobs:
         Set-Location build
         if (Test-Path "CTestTestfile.cmake") {
           Write-Host "Running CTest..."
-          ctest --config ${{ matrix.config }} --verbose
+          ctest --config $config --verbose
         }
 
     - name: Upload test artifacts
