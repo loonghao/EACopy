@@ -8,10 +8,11 @@ if "%VCPKG_ROOT%"=="" (
         set VCPKG_ROOT=C:\vcpkg
         echo VCPKG_ROOT environment variable is not set.
         echo Found vcpkg at: %VCPKG_ROOT%
-    ) else if exist "%~dp0..\..\vcpkg" (
-        set VCPKG_ROOT=%~dp0..\..\vcpkg
+    ) else if exist "%GITHUB_WORKSPACE%\vcpkg" (
+        :: GitHub Actions workspace path
+        set VCPKG_ROOT=%GITHUB_WORKSPACE%\vcpkg
         echo VCPKG_ROOT environment variable is not set.
-        echo Found vcpkg at: %VCPKG_ROOT%
+        echo Found vcpkg at GitHub Actions workspace: %VCPKG_ROOT%
     ) else (
         echo VCPKG_ROOT environment variable is not set and vcpkg not found in common locations.
         echo Please run scripts\install_vcpkg.bat first or set VCPKG_ROOT manually.
@@ -29,15 +30,23 @@ if not exist "%VCPKG_ROOT%\vcpkg.exe" (
 
 echo Using vcpkg from: %VCPKG_ROOT%
 
-:: Check if build directory exists and ask to clean it
+:: Check if build directory exists and ask to clean it (skip prompt in CI environment)
 if exist "build" (
     echo.
-    echo Build directory already exists. It's recommended to clean it before building with vcpkg.
-    choice /C YN /M "Do you want to clean the build directory"
-    if errorlevel 2 goto :skip_clean
-    if errorlevel 1 (
-        echo Cleaning build directory...
+    echo Build directory already exists.
+
+    :: Check if running in CI environment (GitHub Actions sets CI=true)
+    if "%CI%"=="true" (
+        echo Running in CI environment, automatically cleaning build directory...
         rmdir /S /Q build
+    ) else (
+        echo It's recommended to clean it before building with vcpkg.
+        choice /C YN /M "Do you want to clean the build directory"
+        if errorlevel 2 goto :skip_clean
+        if errorlevel 1 (
+            echo Cleaning build directory...
+            rmdir /S /Q build
+        )
     )
 )
 

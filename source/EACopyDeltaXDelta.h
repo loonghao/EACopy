@@ -235,7 +235,7 @@ bool xDeltaCode(bool encode, Socket& socket, const wchar_t* referenceFileName, F
 
 	xd3_config config;
 	xd3_init_config(&config, flags);
-	config.winsize = min(referenceFileSize, XD3_DEFAULT_WINSIZE);
+	config.winsize = (referenceFileSize < XD3_DEFAULT_WINSIZE) ? referenceFileSize : XD3_DEFAULT_WINSIZE;
 	config.getblk = xDeltaGetBlock;
 	config.opaque = &blockData;
 	config.iopt_size = XD3_DEFAULT_IOPT_SIZE;

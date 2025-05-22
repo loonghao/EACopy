@@ -65,21 +65,7 @@ endif (UNIX)
 # Find required packages
 find_package(zstd CONFIG REQUIRED)
 find_package(LibLZMA REQUIRED)
-
-# Create custom xdelta library since it's not available in vcpkg
-set(EACOPY_EXTERNAL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external")
-set(EACOPY_XDELTA_DIR "${EACOPY_EXTERNAL_DIR}/xdelta")
-
-# Build xdelta from source
-add_compile_definitions(SIZEOF_SIZE_T=8 SIZEOF_UNSIGNED_LONG_LONG=8 XD3_USE_LARGEFILE64=1 SECONDARY_DJW=1 SECONDARY_LZMA=1 SECONDARY_FGK=1 LZMA_API_STATIC)
-if(WIN32)
-    add_compile_definitions(_WIN32=1 XD3_WIN32=1)
-endif()
-add_subdirectory(${EACOPY_XDELTA_DIR})
-target_include_directories(xdelta PRIVATE ${LibLZMA_INCLUDE_DIRS})
-if (WIN32)
-    target_compile_options(xdelta PUBLIC "$<$<CONFIG:RELEASE>:/Oi>")
-endif(WIN32)
+# find_package(xdelta CONFIG REQUIRED)  # Temporarily disabled
 
 #-------------------------------------------------------------------------------------------
 # Library definitions
@@ -88,9 +74,9 @@ endif(WIN32)
 # Set external libraries list
 set(EACOPY_ZSTD_LIB zstd::libzstd)
 set(EACOPY_LZMA_LIB LibLZMA::LibLZMA)
-set(EACOPY_XDELTA_LIB xdelta)
+# set(EACOPY_XDELTA_LIB xdelta::xdelta)  # Temporarily disabled
 
-set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_XDELTA_LIB} ${EACOPY_LZMA_LIB})
+set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_LZMA_LIB})  # Removed xdelta temporarily
 
 set(EACOPY_SHARED_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyNetwork.h
@@ -99,13 +85,39 @@ set(EACOPY_SHARED_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyShared.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/Addition.manifest)
 
-add_definitions(-DEACOPY_ALLOW_DELTA_COPY)
-set(EACOPY_SHARED_FILES
-    ${EACOPY_SHARED_FILES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyDelta.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDelta.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaZstd.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaXDelta.h)
+# add_definitions(-DEACOPY_ALLOW_DELTA_COPY)  # Temporarily disabled
+
+# Add xdelta required definitions for all targets (temporarily disabled)
+# add_compile_definitions(
+#     SIZEOF_SIZE_T=8
+#     SIZEOF_UNSIGNED_LONG_LONG=8
+#     XD3_USE_LARGEFILE64=1
+#     SECONDARY_DJW=1
+#     SECONDARY_LZMA=1
+#     SECONDARY_FGK=1
+#     LZMA_API_STATIC
+#     _CRT_SECURE_NO_WARNINGS
+# )
+
+# Add basic compile definitions
+add_compile_definitions(
+    _CRT_SECURE_NO_WARNINGS
+)
+
+if(WIN32)
+    add_compile_definitions(
+        _WIN32=1
+        # XD3_WIN32=1  # Temporarily disabled
+    )
+endif()
+
+# Temporarily disable delta files
+# set(EACOPY_SHARED_FILES
+#     ${EACOPY_SHARED_FILES}
+#     ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyDelta.h
+#     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDelta.cpp
+#     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaZstd.h
+#     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaXDelta.h)
 
 add_executable(EACopy
     source/EACopy.cpp
@@ -114,7 +126,9 @@ add_executable(EACopy
     ${EACOPY_SHARED_FILES})
 
 # Set include directories
-set(EACOPY_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(EACOPY_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include)
 
 target_include_directories(EACopy PUBLIC ${EACOPY_INCLUDE_DIRS})
 
@@ -168,9 +182,9 @@ if(EACOPY_BUILD_AS_LIBRARY)
         target_link_libraries(EACopyLib ${EACOPY_EXTERNAL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
     endif (UNIX)
 
-    # Add compile definitions
+    # Add compile definitions (temporarily disabled delta copy)
     target_compile_definitions(EACopyLib PUBLIC
-            EACOPY_ALLOW_DELTA_COPY
+            # EACOPY_ALLOW_DELTA_COPY  # Temporarily disabled
             $<$<BOOL:${WIN32}>:NOMINMAX>
             $<$<BOOL:${WIN32}>:WIN32_LEAN_AND_MEAN>
         )
@@ -197,15 +211,6 @@ if(EACOPY_INSTALL)
     )
 
     if(EACOPY_BUILD_AS_LIBRARY)
-        # Install xdelta dependency
-        install(TARGETS xdelta
-            EXPORT EACopyTargets
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-            INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        )
-
         # Install main library
         install(TARGETS EACopyLib
             EXPORT EACopyTargets

@@ -9,46 +9,44 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        configuration: [Debug, Release]
-        
+
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
-        submodules: true
         fetch-depth: 0
 
     - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v1.1
+      uses: microsoft/setup-msbuild@v2
 
     - name: Setup vcpkg
       uses: lukka/run-vcpkg@v11
       with:
-        vcpkgGitCommitId: f26ec398c25c4980f33a50391f00a75f7ad62ef7
-        vcpkgDirectory: ${{ github.workspace }}/vcpkg
-        vcpkgJsonGlob: '**/vcpkg.json'
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgGitCommitId: 'f26ec398c25c4980f33a50391f00a75f7ad62ef7'
 
-    - name: Configure CMake
+    - name: Build and Test
       run: |
-        mkdir build
-        cd build
-        cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DEACOPY_BUILD_TESTS:BOOL=ON
+        # Set CI flag for build script to detect
+        $env:CI = "true"
+        # Set VCPKG_ROOT environment variable
+        $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
+        # Run our build script which handles CMake configuration, building, and testing
+        scripts\build.bat
 
-    - name: Build
-      run: |
-        cd build
-        msbuild ALL_BUILD.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
-
-    - name: Test
-      run: |
-        cd build
-        ctest -C ${{ matrix.configuration }} --output-on-failure
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload Release artifacts
+      uses: actions/upload-artifact@v4
       with:
-        name: EACopy-${{ matrix.configuration }}
+        name: EACopy-Release
         path: |
-          build/${{ matrix.configuration }}/EACopy.exe
-          build/${{ matrix.configuration }}/EACopyService.exe
+          build/Release/EACopy.exe
+          build/Release/EACopyService.exe
+        if-no-files-found: error
+
+    - name: Upload Debug artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: EACopy-Debug
+        path: |
+          build/Debug/EACopy.exe
+          build/Debug/EACopyService.exe
+        if-no-files-found: error
