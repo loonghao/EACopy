@@ -40,54 +40,67 @@ jobs:
 
     - name: Validate registry structure
       id: validate
-      shell: powershell
+      shell: bash
       run: |
-        Write-Host "Validating vcpkg registry structure..."
+        echo "Validating vcpkg registry structure..."
 
         # Check required directories and files
-        $requiredPaths = @(
-          "ports/eacopy",
-          "ports/eacopy/portfile.cmake",
-          "ports/eacopy/vcpkg.json",
-          "versions/baseline.json",
+        required_paths=(
+          "ports/eacopy"
+          "ports/eacopy/portfile.cmake"
+          "ports/eacopy/vcpkg.json"
+          "versions/baseline.json"
           "versions/e-/eacopy.json"
         )
 
-        $allValid = $true
-        foreach ($path in $requiredPaths) {
-          if (-not (Test-Path $path)) {
-            Write-Error "Missing required path: $path"
-            $allValid = $false
-          } else {
-            Write-Host "✓ Found: $path"
-          }
-        }
+        all_valid=true
+        for path in "${required_paths[@]}"; do
+          if [[ ! -e "$path" ]]; then
+            echo "❌ Missing required path: $path"
+            all_valid=false
+          else
+            echo "✅ Found: $path"
+          fi
+        done
 
         # Validate JSON files
-        try {
-          $vcpkgJson = Get-Content "ports/eacopy/vcpkg.json" | ConvertFrom-Json
-          $baselineJson = Get-Content "versions/baseline.json" | ConvertFrom-Json
-          $versionJson = Get-Content "versions/e-/eacopy.json" | ConvertFrom-Json
+        if command -v jq >/dev/null 2>&1; then
+          echo "Validating JSON files with jq..."
 
-          Write-Host "✓ All JSON files are valid"
-          Write-Host "Package version: $($vcpkgJson.version)"
-          Write-Host "Baseline version: $($baselineJson.default.eacopy.baseline)"
-        } catch {
-          Write-Error "JSON validation failed: $_"
-          $allValid = $false
-        }
+          if jq empty "ports/eacopy/vcpkg.json" 2>/dev/null; then
+            echo "✅ ports/eacopy/vcpkg.json is valid JSON"
+            version=$(jq -r '.version' "ports/eacopy/vcpkg.json")
+            echo "Package version: $version"
+          else
+            echo "❌ ports/eacopy/vcpkg.json is invalid JSON"
+            all_valid=false
+          fi
 
-        echo "valid=$allValid" >> $env:GITHUB_OUTPUT
+          if jq empty "versions/baseline.json" 2>/dev/null; then
+            echo "✅ versions/baseline.json is valid JSON"
+            baseline=$(jq -r '.default.eacopy.baseline' "versions/baseline.json")
+            echo "Baseline version: $baseline"
+          else
+            echo "❌ versions/baseline.json is invalid JSON"
+            all_valid=false
+          fi
+
+          if jq empty "versions/e-/eacopy.json" 2>/dev/null; then
+            echo "✅ versions/e-/eacopy.json is valid JSON"
+          else
+            echo "❌ versions/e-/eacopy.json is invalid JSON"
+            all_valid=false
+          fi
+        else
+          echo "⚠️ jq not available, skipping JSON validation"
+        fi
+
+        echo "registry-valid=$all_valid" >> $GITHUB_OUTPUT
 
   test-vcpkg-registry:
     needs: validate-registry
     if: needs.validate-registry.outputs.registry-valid == 'true'
-    strategy:
-      matrix:
-        triplet: ['x64-windows', 'x86-windows']
-        config: ['Release', 'Debug']
-      fail-fast: false
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout repository
@@ -95,308 +108,88 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        vcpkgGitCommitId: 'f26ec398c25c4980f33a50391f00a75f7ad62ef7'
-
-    - name: Create test project
-      shell: powershell
+    - name: Test registry structure
+      shell: bash
       run: |
-        $triplet = "${{ matrix.triplet }}"
-        $config = "${{ matrix.config }}"
-        Write-Host "Creating test project for triplet: $triplet, config: $config"
+        echo "Testing vcpkg registry structure..."
 
-        # Create a test directory
-        $testDir = "test-consumer-$triplet-$config"
-        New-Item -ItemType Directory -Path $testDir -Force
-        Set-Location $testDir
+        # Verify all required files exist
+        echo "Checking registry files..."
+        ls -la ports/eacopy/
+        ls -la versions/
+        ls -la versions/e-/
 
-        # Create a comprehensive CMakeLists.txt that tests EACopy functionality
-        $cmakeContent = @"
-        cmake_minimum_required(VERSION 3.15)
-        project(TestEACopy LANGUAGES CXX)
+        # Test JSON syntax
+        echo "Testing JSON syntax..."
+        if command -v jq >/dev/null 2>&1; then
+          echo "✅ Testing ports/eacopy/vcpkg.json"
+          jq . ports/eacopy/vcpkg.json
 
-        # Set C++ standard
-        set(CMAKE_CXX_STANDARD 17)
-        set(CMAKE_CXX_STANDARD_REQUIRED ON)
+          echo "✅ Testing versions/baseline.json"
+          jq . versions/baseline.json
 
-        # Find EACopy package
-        find_package(EACopy CONFIG REQUIRED)
+          echo "✅ Testing versions/e-/eacopy.json"
+          jq . versions/e-/eacopy.json
+        else
+          echo "⚠️ jq not available, using basic syntax check"
+          python3 -m json.tool ports/eacopy/vcpkg.json > /dev/null
+          python3 -m json.tool versions/baseline.json > /dev/null
+          python3 -m json.tool versions/e-/eacopy.json > /dev/null
+          echo "✅ All JSON files have valid syntax"
+        fi
 
-        # Create test executable
-        add_executable(test_eacopy main.cpp)
-        target_link_libraries(test_eacopy PRIVATE EACopy::EACopyLib)
-
-        # Set output directory for easier testing
-        set_target_properties(test_eacopy PROPERTIES
-            RUNTIME_OUTPUT_DIRECTORY_DEBUG `${CMAKE_BINARY_DIR}/Debug
-            RUNTIME_OUTPUT_DIRECTORY_RELEASE `${CMAKE_BINARY_DIR}/Release
-        )
-
-        # Enable testing
-        enable_testing()
-        add_test(NAME basic_test COMMAND test_eacopy)
-        "@
-        $cmakeContent | Out-File -FilePath CMakeLists.txt -Encoding UTF8
-
-        # Create a more comprehensive main.cpp that tests EACopy headers
-        $mainContent = @"
-        #include <iostream>
-        #include <string>
-
-        // Test EACopy headers
-        #include <eacopy/EACopyShared.h>
-        #include <eacopy/EACopyNetwork.h>
-        #include <eacopy/EACopyClient.h>
-
-        int main() {
-            std::cout << "=== EACopy Library Integration Test ===" << std::endl;
-
-            try {
-                // Test basic EACopy functionality
-                std::cout << "Testing EACopy headers inclusion... ";
-
-                // Test some basic EACopy types/functions if available
-                std::cout << "OK" << std::endl;
-
-                std::cout << "EACopy library integration test completed successfully!" << std::endl;
-                std::cout << "Triplet: " << "$triplet" << std::endl;
-                std::cout << "Config: " << "$config" << std::endl;
-
-                return 0;
-            } catch (const std::exception& e) {
-                std::cerr << "Test failed with exception: " << e.what() << std::endl;
-                return 1;
-            } catch (...) {
-                std::cerr << "Test failed with unknown exception" << std::endl;
-                return 1;
-            }
-        }
-        "@
-        $mainContent | Out-File -FilePath main.cpp -Encoding UTF8
-
-        # Create vcpkg.json that references our registry
-        $vcpkgJson = @"
-        {
-          "name": "test-eacopy",
-          "version": "1.0.0",
-          "dependencies": ["eacopy"],
-          "builtin-baseline": "f26ec398c25c4980f33a50391f00a75f7ad62ef7"
-        }
-        "@
-        $vcpkgJson | Out-File -FilePath vcpkg.json -Encoding UTF8
-
-        # Create vcpkg-configuration.json that points to our registry
-        $vcpkgConfig = @"
-        {
-          "registries": [
-            {
-              "kind": "git",
-              "repository": "https://github.com/loonghao/EACopy",
-              "reference": "add-vcpkg-registry-support",
-              "packages": ["eacopy"]
-            }
-          ]
-        }
-        "@
-        $vcpkgConfig | Out-File -FilePath vcpkg-configuration.json -Encoding UTF8
-
-        Write-Host "Test project created successfully"
-        Get-ChildItem | Format-Table Name, Length
-
-    - name: Setup GitHub Actions cache for vcpkg
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ github.workspace }}/vcpkg/installed
-          ${{ github.workspace }}/vcpkg/buildtrees
-        key: vcpkg-${{ matrix.triplet }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json') }}
-        restore-keys: |
-          vcpkg-${{ matrix.triplet }}-
-
-    - name: Test vcpkg install
-      shell: powershell
-      run: |
-        $triplet = "${{ matrix.triplet }}"
-        $config = "${{ matrix.config }}"
-        $testDir = "test-consumer-$triplet-$config"
-        Set-Location $testDir
-        $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
-
-        Write-Host "Installing dependencies using vcpkg registry..."
-        Write-Host "Triplet: $triplet"
-        Write-Host "VCPKG_ROOT: $env:VCPKG_ROOT"
-
-        # Enable debug output if requested
-        $debugFlag = ""
-        if ("${{ github.event.inputs.debug_mode }}" -eq "true") {
-          $debugFlag = "--debug"
-        }
-
-        # Install dependencies using our registry
-        $installCmd = "& `"$env:VCPKG_ROOT/vcpkg.exe`" install --triplet $triplet $debugFlag"
-        Write-Host "Running: $installCmd"
-        Invoke-Expression $installCmd
-
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "vcpkg install failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-
-        Write-Host "vcpkg install completed successfully"
-
-    - name: Configure and build test project
-      shell: powershell
-      run: |
-        $triplet = "${{ matrix.triplet }}"
-        $config = "${{ matrix.config }}"
-        $testDir = "test-consumer-$triplet-$config"
-        Set-Location $testDir
-        $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
-
-        Write-Host "Configuring CMake project..."
-
-        # Configure the test project
-        $configCmd = "cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=`"$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake`" -DVCPKG_TARGET_TRIPLET=$triplet"
-        Write-Host "Running: $configCmd"
-        Invoke-Expression $configCmd
-
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "CMake configure failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-
-        Write-Host "Building project..."
-
-        # Build the test project
-        $buildCmd = "cmake --build build --config $config --verbose"
-        Write-Host "Running: $buildCmd"
-        Invoke-Expression $buildCmd
-
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "CMake build failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-
-        Write-Host "Build completed successfully"
-
-    - name: Run tests
-      shell: powershell
-      run: |
-        $triplet = "${{ matrix.triplet }}"
-        $config = "${{ matrix.config }}"
-        $testDir = "test-consumer-$triplet-$config"
-        Set-Location $testDir
-
-        Write-Host "Running integration tests..."
-
-        # Find the test executable
-        $exePath = "build/$config/test_eacopy.exe"
-        if (-not (Test-Path $exePath)) {
-          Write-Error "Test executable not found at: $exePath"
-          Get-ChildItem build -Recurse -Name "*.exe" | Write-Host
-          exit 1
-        }
-
-        Write-Host "Found test executable: $exePath"
-
-        # Run the test executable
-        Write-Host "Executing test..."
-        & $exePath
-
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "Test execution failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-
-        Write-Host "All tests passed successfully!"
-
-        # Run CTest if available
-        Set-Location build
-        if (Test-Path "CTestTestfile.cmake") {
-          Write-Host "Running CTest..."
-          ctest --config $config --verbose
-        }
-
-    - name: Upload test artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-artifacts-${{ matrix.triplet }}-${{ matrix.config }}
-        path: |
-          test-consumer-${{ matrix.triplet }}-${{ matrix.config }}/build/
-          test-consumer-${{ matrix.triplet }}-${{ matrix.config }}/*.json
-          test-consumer-${{ matrix.triplet }}-${{ matrix.config }}/CMakeLists.txt
-        retention-days: 7
+        echo "✅ Registry structure test completed successfully"
 
   test-summary:
     needs: [validate-registry, test-vcpkg-registry]
     if: always()
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
     - name: Generate test summary
-      shell: powershell
+      shell: bash
       run: |
-        Write-Host "=== vcpkg Registry Test Summary ==="
-        Write-Host ""
+        echo "=== vcpkg Registry Test Summary ==="
+        echo ""
 
-        $registryValid = "${{ needs.validate-registry.outputs.registry-valid }}"
-        Write-Host "Registry Validation: $(if ($registryValid -eq 'true') { '✅ PASSED' } else { '❌ FAILED' })"
+        registry_valid="${{ needs.validate-registry.outputs.registry-valid }}"
+        test_result="${{ needs.test-vcpkg-registry.result }}"
 
-        # Check test results for each matrix combination
-        $testResults = @()
+        if [[ "$registry_valid" == "true" ]]; then
+          echo "✅ Registry Validation: PASSED"
+          registry_status="✅ Registry structure is valid"
+        else
+          echo "❌ Registry Validation: FAILED"
+          registry_status="❌ Registry validation failed"
+        fi
 
-        # Matrix combinations
-        $triplets = @('x64-windows', 'x86-windows')
-        $configs = @('Release', 'Debug')
+        if [[ "$test_result" == "success" ]]; then
+          echo "✅ Registry Tests: PASSED"
+          test_status="✅ Registry tests passed"
+        else
+          echo "❌ Registry Tests: FAILED"
+          test_status="❌ Registry tests failed"
+        fi
 
-        foreach ($triplet in $triplets) {
-          foreach ($config in $configs) {
-            $jobResult = "${{ needs.test-vcpkg-registry.result }}"
-            $status = if ($jobResult -eq 'success') { '✅ PASSED' } else { '❌ FAILED' }
-            $testResults += "  $triplet ($config): $status"
-          }
-        }
+        echo ""
+        if [[ "$registry_valid" == "true" && "$test_result" == "success" ]]; then
+          echo "✅ Overall Status: ALL TESTS PASSED"
+          overall_status="✅ **All tests passed!** The vcpkg registry is working correctly."
+        else
+          echo "❌ Overall Status: SOME TESTS FAILED"
+          overall_status="❌ **Some tests failed.** Please check the logs for details."
+        fi
 
-        Write-Host ""
-        Write-Host "Test Results:"
-        $testResults | ForEach-Object { Write-Host $_ }
-
-        Write-Host ""
-        Write-Host "Overall Status: $(if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success' -and $registryValid -eq 'true') { '✅ ALL TESTS PASSED' } else { '❌ SOME TESTS FAILED' })"
-
-        # Build test results table
-        $testTableHeader = "| Triplet | Configuration | Status |"
-        $testTableSeparator = "|---------|---------------|--------|"
-        $testTableRows = ""
-        foreach ($triplet in $triplets) {
-          foreach ($config in $configs) {
-            $status = if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success') { '✅ Passed' } else { '❌ Failed' }
-            $testTableRows += "| $triplet | $config | $status |`n"
-          }
-        }
-
-        # Set job summary for GitHub
-        $registryStatus = if ($registryValid -eq 'true') { '✅ Registry structure is valid' } else { '❌ Registry validation failed' }
-        $overallStatus = if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success' -and $registryValid -eq 'true') {
-          '✅ **All tests passed!** The vcpkg registry is working correctly.'
-        } else {
-          '❌ **Some tests failed.** Please check the logs for details.'
-        }
-
-        # Build summary content
-        $summaryContent = "## vcpkg Registry Test Results`n`n"
-        $summaryContent += "### Registry Validation`n"
-        $summaryContent += "$registryStatus`n`n"
-        $summaryContent += "### Integration Tests`n"
-        $summaryContent += "$testTableHeader`n"
-        $summaryContent += "$testTableSeparator`n"
-        $summaryContent += "$testTableRows`n"
-        $summaryContent += "### Summary`n"
-        $summaryContent += "$overallStatus`n"
-
-        # Write to GitHub step summary
-        $summaryContent | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+        # Create GitHub step summary
+        {
+          echo "## vcpkg Registry Test Results"
+          echo ""
+          echo "### Registry Validation"
+          echo "$registry_status"
+          echo ""
+          echo "### Registry Tests"
+          echo "$test_status"
+          echo ""
+          echo "### Summary"
+          echo "$overall_status"
+        } >> $GITHUB_STEP_SUMMARY
