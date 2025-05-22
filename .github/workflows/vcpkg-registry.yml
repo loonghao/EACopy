@@ -1,0 +1,94 @@
+name: Test vcpkg Registry
+
+on:
+  push:
+    branches: [ add-vcpkg-registry-support ]
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'ports/**'
+      - 'versions/**'
+      - '.github/workflows/vcpkg-registry.yml'
+
+jobs:
+  test-vcpkg-registry:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgGitCommitId: 'f26ec398c25c4980f33a50391f00a75f7ad62ef7'
+
+    - name: Create test project
+      run: |
+        # Create a test directory
+        mkdir test-consumer
+        cd test-consumer
+        
+        # Create a simple CMakeLists.txt that uses EACopy
+        @"
+        cmake_minimum_required(VERSION 3.15)
+        project(TestEACopy)
+        
+        find_package(EACopy CONFIG REQUIRED)
+        
+        add_executable(test_eacopy main.cpp)
+        target_link_libraries(test_eacopy PRIVATE EACopy::EACopyLib)
+        "@ | Out-File -FilePath CMakeLists.txt -Encoding UTF8
+        
+        # Create a simple main.cpp
+        @"
+        #include <iostream>
+        int main() {
+            std::cout << "EACopy library integration test successful!" << std::endl;
+            return 0;
+        }
+        "@ | Out-File -FilePath main.cpp -Encoding UTF8
+        
+        # Create vcpkg.json that references our registry
+        @"
+        {
+          "name": "test-eacopy",
+          "version": "1.0.0",
+          "dependencies": ["eacopy"]
+        }
+        "@ | Out-File -FilePath vcpkg.json -Encoding UTF8
+        
+        # Create vcpkg-configuration.json that points to our registry
+        @"
+        {
+          "registries": [
+            {
+              "kind": "git",
+              "repository": "https://github.com/loonghao/EACopy",
+              "reference": "add-vcpkg-registry-support",
+              "packages": ["eacopy"]
+            }
+          ]
+        }
+        "@ | Out-File -FilePath vcpkg-configuration.json -Encoding UTF8
+
+    - name: Test vcpkg install
+      run: |
+        cd test-consumer
+        $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
+        
+        # Install dependencies using our registry
+        & "$env:VCPKG_ROOT/vcpkg.exe" install --triplet x64-windows
+        
+        # Configure and build the test project
+        cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+        cmake --build build --config Release
+
+    - name: Verify installation
+      run: |
+        cd test-consumer
+        # Run the test executable
+        ./build/Release/test_eacopy.exe

@@ -19,7 +19,7 @@ if(POLICY CMP0074)
   cmake_policy(SET CMP0074 NEW)  # find_package uses <PackageName>_ROOT variables
 endif()
 
-project(EACopy CXX)
+project(EACopy VERSION 1.20.0 LANGUAGES CXX)
 
 # NOTE: Only used in multi-configuration environments
 set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "My multi config types" FORCE)
