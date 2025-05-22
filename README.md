@@ -58,14 +58,62 @@ Your pull request should:
 * pass the test suite
 * do not deviate from style already established in the files
 
-## Building
+## Using EACopy
+
+### Option 1: Download Pre-built Binaries (Recommended)
+
+Download the latest release from the [GitHub Releases page](https://github.com/loonghao/EACopy/releases). Each release includes:
+
+- **Windows x64/x86 binaries**: `EACopy.exe` and `EACopyService.exe`
+- **Static and dynamic libraries**: For integration into your projects
+- **Header files**: For C/C++ development
+- **vcpkg package**: For easy integration with vcpkg-based projects
+
+### Option 2: Use with vcpkg Package Manager
+
+EACopy is available as a vcpkg package for easy integration into your C/C++ projects:
+
+```bash
+# Install EACopy via vcpkg
+vcpkg install eacopy
+
+# Or specify the triplet
+vcpkg install eacopy:x64-windows
+vcpkg install eacopy:x86-windows
+```
+
+#### Using EACopy in Your CMake Project
+
+```cmake
+# Find the EACopy package
+find_package(EACopy CONFIG REQUIRED)
+
+# Link against EACopy library
+target_link_libraries(your_target PRIVATE EACopy::EACopyLib)
+```
+
+#### Using EACopy Headers
+
+```cpp
+#include <eacopy/EACopyShared.h>
+#include <eacopy/EACopyClient.h>
+#include <eacopy/EACopyNetwork.h>
+
+// Your code here
+```
+
+#### Command-line Tools via vcpkg
+
+After installing via vcpkg, the command-line tools are available at:
+- `${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/eacopy/EACopy.exe`
+- `${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/eacopy/EACopyService.exe`
+
+### Option 3: Build from Source
 
 [![Build and Test](https://github.com/loonghao/EACopy/actions/workflows/build.yml/badge.svg)](https://github.com/loonghao/EACopy/actions/workflows/build.yml)
 [![CI](https://github.com/loonghao/EACopy/actions/workflows/ci.yml/badge.svg)](https://github.com/loonghao/EACopy/actions/workflows/ci.yml)
 
-EACopy now uses vcpkg to manage third-party dependencies (zstd, liblzma). This simplifies the build process and eliminates the need for git submodules.
-
-**Note**: Delta copy functionality (xdelta3) is temporarily disabled while we work on proper vcpkg integration.
+EACopy uses vcpkg to manage third-party dependencies (zstd, liblzma). This simplifies the build process and eliminates the need for git submodules.
 
 ### Prerequisites
 
@@ -177,6 +225,46 @@ Notes:
 Reference documentation for setting up CMake: https://docs.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio?view=vs-2019
 Reference documenation for running ctests in VS: https://docs.microsoft.com/en-us/visualstudio/test/how-to-use-ctest-for-cpp?view=vs-2019
 
+
+## Automated Release and vcpkg Registry
+
+EACopy includes a comprehensive automated release system that:
+
+### Automatic Release Creation
+
+When a new version is tagged or manually triggered, the system automatically:
+
+1. **Builds binaries** for multiple configurations (x64/x86, Release/Debug)
+2. **Creates release packages** with executables, libraries, and headers
+3. **Generates SHA512 hashes** for package verification
+4. **Uploads artifacts** to GitHub Releases
+5. **Updates vcpkg registry** with new version and hashes
+
+### vcpkg Registry Updates
+
+The vcpkg registry is automatically updated when new releases are created:
+
+- **portfile.cmake**: Updated with new SHA512 hashes and commit references
+- **vcpkg.json**: Updated with new version numbers
+- **versions/e-/eacopy.json**: Updated with version and git-tree references
+- **versions/baseline.json**: Updated with new baseline version
+
+### Manual Release Trigger
+
+You can manually trigger a release using GitHub Actions:
+
+1. Go to the [Actions tab](https://github.com/loonghao/EACopy/actions)
+2. Select "Release Workflow"
+3. Click "Run workflow"
+4. Specify the version (e.g., "1.0.0") and options
+
+### For Developers
+
+The release system ensures that:
+- **Pre-built binaries** are always available for download
+- **vcpkg packages** are automatically updated and tested
+- **Version consistency** is maintained across all components
+- **SHA512 verification** ensures package integrity
 
 ##Reference links
 CMake main page: https://cmake.org/

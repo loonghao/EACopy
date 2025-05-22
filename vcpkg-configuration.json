@@ -4,5 +4,14 @@
     "kind": "git",
     "repository": "https://github.com/microsoft/vcpkg",
     "baseline": "f26ec398c25c4980f33a50391f00a75f7ad62ef7"
-  }
+  },
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/loonghao/EACopy",
+      "reference": "add-vcpkg-registry-support",
+      "baseline": "c233e24c8b8e8c8e8c8e8c8e8c8e8c8e8c8e8c8e",
+      "packages": ["eacopy"]
+    }
+  ]
 }
