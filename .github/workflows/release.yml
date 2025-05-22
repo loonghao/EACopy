@@ -1,0 +1,324 @@
+name: Release Workflow
+
+on:
+  release:
+    types: [published, created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (without v prefix)'
+        required: false
+        default: ''
+      create_release:
+        description: 'Create GitHub release if it does not exist'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  get-version:
+    name: Get Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version
+      id: get_version
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "release" ]]; then
+          # For release event, extract version from tag
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+        elif [[ "${{ github.event.inputs.version }}" != "" ]]; then
+          # For workflow_dispatch with version input
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          # Extract from CMakeLists.txt - look for project version
+          VERSION=$(grep -o 'project(EACopy.*VERSION [0-9.]*' CMakeLists.txt | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
+
+          # If that fails, try a simpler pattern
+          if [[ -z "$VERSION" ]]; then
+            echo "First extraction method failed, trying alternative..."
+            VERSION=$(grep 'VERSION' CMakeLists.txt | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' | head -1)
+          fi
+
+          # If still no version, use hardcoded fallback
+          if [[ -z "$VERSION" ]]; then
+            echo "Could not extract version from CMakeLists.txt"
+            VERSION="1.0.0"
+            echo "Using fallback version: $VERSION"
+          fi
+        fi
+
+        # Validate version format
+        if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Warning: Version format is not X.Y.Z: '$VERSION'"
+          echo "Falling back to hardcoded version 1.0.0"
+          VERSION="1.0.0"
+        fi
+
+        echo "Using version: $VERSION"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Create release if needed
+      if: github.event.inputs.create_release == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        name: EACopy ${{ steps.get_version.outputs.version }}
+        tag_name: v${{ steps.get_version.outputs.version }}
+        draft: false
+        prerelease: false
+        body: |
+          # EACopy ${{ steps.get_version.outputs.version }}
+
+          Automatic release created by GitHub Actions.
+
+          ## Included Files
+          - Windows binaries (x64, x86)
+          - Static and dynamic libraries
+          - Header files for library consumers
+          - vcpkg package files
+
+          ## Usage
+
+          ### Download Pre-built Binaries
+          Download the appropriate archive for your platform and extract the executables.
+
+          ### Use with vcpkg
+          ```bash
+          vcpkg install eacopy
+          ```
+
+          ### Build from Source
+          See the README.md for build instructions.
+
+  build-binaries:
+    name: Build Binaries
+    needs: get-version
+    strategy:
+      matrix:
+        triplet: ['x64-windows', 'x86-windows']
+        config: ['Release', 'Debug']
+      fail-fast: false
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup vcpkg
+      uses: lukka/run-vcpkg@v11
+      with:
+        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+        vcpkgGitCommitId: 'f26ec398c25c4980f33a50391f00a75f7ad62ef7'
+
+    - name: Build EACopy
+      shell: bash
+      run: |
+        export VCPKG_ROOT="${{ github.workspace }}/vcpkg"
+
+        # Create build directory
+        mkdir -p build-${{ matrix.triplet }}-${{ matrix.config }}
+        cd build-${{ matrix.triplet }}-${{ matrix.config }}
+
+        # Configure CMake
+        cmake .. \
+          -G "Visual Studio 17 2022" \
+          -A ${{ matrix.triplet == 'x64-windows' && 'x64' || 'Win32' }} \
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+          -DEACOPY_BUILD_TESTS=OFF \
+          -DEACOPY_BUILD_AS_LIBRARY=ON \
+          -DEACOPY_INSTALL=ON
+
+        # Build
+        cmake --build . --config ${{ matrix.config }} --verbose
+
+        # Install to staging directory
+        cmake --install . --config ${{ matrix.config }} --prefix ../install-${{ matrix.triplet }}-${{ matrix.config }}
+
+    - name: Package binaries
+      shell: bash
+      run: |
+        triplet="${{ matrix.triplet }}"
+        config="${{ matrix.config }}"
+        version="${{ needs.get-version.outputs.version }}"
+
+        # Create package directory
+        package_dir="eacopy-${version}-${triplet}-${config}"
+        mkdir -p "$package_dir"
+
+        # Copy installed files
+        if [[ -d "install-${triplet}-${config}" ]]; then
+          cp -r install-${triplet}-${config}/* "$package_dir/"
+        fi
+
+        # Copy additional files
+        cp README.md "$package_dir/" 2>/dev/null || echo "README.md not found"
+        cp LICENSE "$package_dir/" 2>/dev/null || echo "LICENSE not found"
+
+        # Create archive
+        if command -v 7z >/dev/null 2>&1; then
+          7z a "${package_dir}.zip" "$package_dir"
+        else
+          powershell -Command "Compress-Archive -Path '$package_dir' -DestinationPath '${package_dir}.zip'"
+        fi
+
+        # Calculate SHA256 hash
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum "${package_dir}.zip" > "${package_dir}.zip.sha256"
+        else
+          powershell -Command "(Get-FileHash -Algorithm SHA256 '${package_dir}.zip').Hash.ToLower() | Out-File -Encoding ASCII '${package_dir}.zip.sha256'"
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: eacopy-${{ matrix.triplet }}-${{ matrix.config }}
+        path: |
+          eacopy-${{ needs.get-version.outputs.version }}-${{ matrix.triplet }}-${{ matrix.config }}.zip
+          eacopy-${{ needs.get-version.outputs.version }}-${{ matrix.triplet }}-${{ matrix.config }}.zip.sha256
+        retention-days: 90
+
+  package:
+    name: Package for vcpkg
+    needs: [get-version, build-binaries]
+    runs-on: windows-latest
+    outputs:
+      sha512: ${{ steps.outputs.outputs.sha512 }}
+      version: ${{ needs.get-version.outputs.version }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: downloaded-artifacts
+
+    - name: List downloaded artifacts
+      shell: pwsh
+      run: |
+        Get-ChildItem -Recurse downloaded-artifacts | Select-Object FullName, Length | Format-Table -AutoSize
+
+    - name: Create vcpkg package structure
+      id: package
+      shell: pwsh
+      run: |
+        $version = "${{ needs.get-version.outputs.version }}"
+        $sha512 = ./.github/scripts/prepare-vcpkg-package.ps1 -Version $version -ArtifactsDir "downloaded-artifacts"
+
+        # Output hash for later use
+        echo "SHA512 hash: $sha512"
+        echo "sha512=$sha512" >> $env:GITHUB_OUTPUT
+
+    - name: Upload vcpkg package
+      uses: actions/upload-artifact@v4
+      with:
+        name: vcpkg-package
+        path: eacopy-${{ needs.get-version.outputs.version }}-windows.zip*
+        retention-days: 90
+
+    - name: Set outputs
+      id: outputs
+      shell: pwsh
+      run: |
+        echo "sha512=${{ steps.package.outputs.sha512 }}" >> $env:GITHUB_OUTPUT
+
+  release:
+    name: Attach to GitHub Release
+    needs: [get-version, build-binaries, package]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: List artifacts
+      run: find artifacts -type f | sort
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.get-version.outputs.version }}
+        files: |
+          artifacts/eacopy-x64-windows-Release/eacopy-${{ needs.get-version.outputs.version }}-x64-windows-Release.zip
+          artifacts/eacopy-x64-windows-Debug/eacopy-${{ needs.get-version.outputs.version }}-x64-windows-Debug.zip
+          artifacts/eacopy-x86-windows-Release/eacopy-${{ needs.get-version.outputs.version }}-x86-windows-Release.zip
+          artifacts/eacopy-x86-windows-Debug/eacopy-${{ needs.get-version.outputs.version }}-x86-windows-Debug.zip
+          artifacts/vcpkg-package/eacopy-${{ needs.get-version.outputs.version }}-windows.zip
+          artifacts/vcpkg-package/eacopy-${{ needs.get-version.outputs.version }}-windows.zip.sha512
+
+  update-vcpkg-registry:
+    name: Update vcpkg Registry
+    needs: [get-version, package, release]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download vcpkg package
+      uses: actions/download-artifact@v4
+      with:
+        name: vcpkg-package
+        path: vcpkg-package
+
+    - name: Get SHA512 hash
+      id: get_hash
+      run: |
+        if [ -n "${{ needs.package.outputs.sha512 }}" ]; then
+          # Use SHA512 from package job output
+          SHA512="${{ needs.package.outputs.sha512 }}"
+          echo "Using SHA512 from package job output: $SHA512"
+          echo "SHA512=$SHA512" >> $GITHUB_OUTPUT
+        elif [ -f "vcpkg-package/eacopy-${{ needs.get-version.outputs.version }}-windows.zip.sha512" ]; then
+          # Use SHA512 from downloaded artifact
+          SHA512=$(cat vcpkg-package/eacopy-${{ needs.get-version.outputs.version }}-windows.zip.sha512)
+          echo "SHA512=$SHA512" >> $GITHUB_OUTPUT
+          echo "SHA512 hash from file: $SHA512"
+        else
+          echo "SHA512 hash file not found, checking artifacts"
+          find vcpkg-package -type f -name "*.sha512" | sort
+          # Try to find any SHA512 file
+          SHA512_FILE=$(find vcpkg-package -type f -name "*.sha512" | head -n 1)
+          if [ -n "$SHA512_FILE" ]; then
+            SHA512=$(cat "$SHA512_FILE")
+            echo "SHA512=$SHA512" >> $GITHUB_OUTPUT
+            echo "Using SHA512 hash from $SHA512_FILE: $SHA512"
+          else
+            echo "No SHA512 hash found, failing"
+            exit 1
+          fi
+        fi
+
+    - name: Update vcpkg registry files
+      run: |
+        ./.github/scripts/update-vcpkg-registry.sh -v "${{ needs.get-version.outputs.version }}" -s "${{ steps.get_hash.outputs.SHA512 }}"
+
+    - name: Commit and push to current branch
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: |
+          Update vcpkg registry for version ${{ needs.get-version.outputs.version }}
+
+          - Updated SHA512 hash in portfile.cmake: ${{ steps.get_hash.outputs.SHA512 }}
+          - Updated version references
+          - Updated git-tree reference
+          - Updated baseline.json
+
+          This commit was created automatically by the release workflow.
+        file_pattern: 'ports/ versions/'
+        commit_user_name: 'GitHub Actions'
+        commit_user_email: 'actions@github.com'
+        commit_author: 'GitHub Actions <actions@github.com>'
