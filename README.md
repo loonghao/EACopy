@@ -60,7 +60,12 @@ Your pull request should:
 
 ## Building
 
-EACopy now uses vcpkg to manage third-party dependencies (zstd, liblzma, xdelta3). This simplifies the build process and eliminates the need for git submodules.
+[![Build and Test](https://github.com/loonghao/EACopy/actions/workflows/build.yml/badge.svg)](https://github.com/loonghao/EACopy/actions/workflows/build.yml)
+[![CI](https://github.com/loonghao/EACopy/actions/workflows/ci.yml/badge.svg)](https://github.com/loonghao/EACopy/actions/workflows/ci.yml)
+
+EACopy now uses vcpkg to manage third-party dependencies (zstd, liblzma). This simplifies the build process and eliminates the need for git submodules.
+
+**Note**: Delta copy functionality (xdelta3) is temporarily disabled while we work on proper vcpkg integration.
 
 ### Prerequisites
 
