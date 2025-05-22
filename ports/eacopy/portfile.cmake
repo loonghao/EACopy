@@ -4,6 +4,8 @@ vcpkg_from_git(
     URL https://github.com/loonghao/EACopy.git
     REF v${VERSION}
     HEAD_REF master
+    PATCHES
+        # Add any patches if needed
 )
 
 # Configure CMake
