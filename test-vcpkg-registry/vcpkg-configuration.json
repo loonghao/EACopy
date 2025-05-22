@@ -1,0 +1,11 @@
+{
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/loonghao/EACopy",
+      "reference": "add-vcpkg-registry-support",
+      "baseline": "2f93a65e80f31be22dc2859fd28c25dbc2721ee6",
+      "packages": ["eacopy"]
+    }
+  ]
+}
