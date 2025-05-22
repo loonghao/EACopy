@@ -360,30 +360,35 @@ jobs:
         Write-Host ""
         Write-Host "Overall Status: $(if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success' -and $registryValid -eq 'true') { '✅ ALL TESTS PASSED' } else { '❌ SOME TESTS FAILED' })"
 
-        # Set job summary for GitHub
-        $summary = @"
-        ## vcpkg Registry Test Results
-
-        ### Registry Validation
-        $(if ($registryValid -eq 'true') { '✅ Registry structure is valid' } else { '❌ Registry validation failed' })
-
-        ### Integration Tests
-        | Triplet | Configuration | Status |
-        |---------|---------------|--------|
-        $(foreach ($triplet in $triplets) {
+        # Build test results table
+        $testTableHeader = "| Triplet | Configuration | Status |"
+        $testTableSeparator = "|---------|---------------|--------|"
+        $testTableRows = ""
+        foreach ($triplet in $triplets) {
           foreach ($config in $configs) {
             $status = if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success') { '✅ Passed' } else { '❌ Failed' }
-            "| $triplet | $config | $status |"
+            $testTableRows += "| $triplet | $config | $status |`n"
           }
-        })
+        }
 
-        ### Summary
-        $(if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success' -and $registryValid -eq 'true') {
+        # Set job summary for GitHub
+        $registryStatus = if ($registryValid -eq 'true') { '✅ Registry structure is valid' } else { '❌ Registry validation failed' }
+        $overallStatus = if ('${{ needs.test-vcpkg-registry.result }}' -eq 'success' -and $registryValid -eq 'true') {
           '✅ **All tests passed!** The vcpkg registry is working correctly.'
         } else {
           '❌ **Some tests failed.** Please check the logs for details.'
-        })
-        "@
+        }
+
+        # Build summary content
+        $summaryContent = "## vcpkg Registry Test Results`n`n"
+        $summaryContent += "### Registry Validation`n"
+        $summaryContent += "$registryStatus`n`n"
+        $summaryContent += "### Integration Tests`n"
+        $summaryContent += "$testTableHeader`n"
+        $summaryContent += "$testTableSeparator`n"
+        $summaryContent += "$testTableRows`n"
+        $summaryContent += "### Summary`n"
+        $summaryContent += "$overallStatus`n"
 
         # Write to GitHub step summary
-        $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+        $summaryContent | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
