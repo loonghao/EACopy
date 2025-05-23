@@ -13,7 +13,12 @@ include(CMakeFindDependencyMacro)
 # Find vcpkg dependencies
 find_dependency(zstd CONFIG)
 find_dependency(LibLZMA)
-# find_dependency(xdelta3 CONFIG)  # Temporarily disabled
+
+# Only find xdelta3 if delta copy is enabled
+# This prevents find_package errors when delta copy is disabled
+if(@EACOPY_ALLOW_DELTA_COPY@)
+    find_dependency(xdelta3 CONFIG)
+endif()
 
 # Set package found flag
 set(EACOPY_FOUND TRUE)
