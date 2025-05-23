@@ -10,7 +10,7 @@
 // LZMA - using vcpkg
 #include <lzma.h>
 
-// XDELTA - only include when delta copy is enabled
+// XDELTA - using vcpkg, only include when delta copy is enabled
 #if defined(EACOPY_ALLOW_DELTA_COPY)
-#include "../external/xdelta/xdelta3/xdelta3.h"
+#include <xdelta3/xdelta3.h>
 #endif

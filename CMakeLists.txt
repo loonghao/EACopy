@@ -65,7 +65,7 @@ endif (UNIX)
 # Find required packages
 find_package(zstd CONFIG REQUIRED)
 find_package(LibLZMA REQUIRED)
-# find_package(xdelta CONFIG REQUIRED)  # Temporarily disabled
+find_package(xdelta CONFIG REQUIRED)
 
 #-------------------------------------------------------------------------------------------
 # Library definitions
@@ -74,9 +74,9 @@ find_package(LibLZMA REQUIRED)
 # Set external libraries list
 set(EACOPY_ZSTD_LIB zstd::libzstd)
 set(EACOPY_LZMA_LIB LibLZMA::LibLZMA)
-# set(EACOPY_XDELTA_LIB xdelta::xdelta)  # Temporarily disabled
+set(EACOPY_XDELTA_LIB xdelta::xdelta)
 
-set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_LZMA_LIB})  # Removed xdelta temporarily
+set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_LZMA_LIB} ${EACOPY_XDELTA_LIB})
 
 set(EACOPY_SHARED_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyNetwork.h
@@ -85,39 +85,41 @@ set(EACOPY_SHARED_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyShared.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/Addition.manifest)
 
-# add_definitions(-DEACOPY_ALLOW_DELTA_COPY)  # Temporarily disabled
+add_definitions(-DEACOPY_ALLOW_DELTA_COPY)
 
-# Add xdelta required definitions for all targets (temporarily disabled)
-# add_compile_definitions(
-#     SIZEOF_SIZE_T=8
-#     SIZEOF_UNSIGNED_LONG_LONG=8
-#     XD3_USE_LARGEFILE64=1
-#     SECONDARY_DJW=1
-#     SECONDARY_LZMA=1
-#     SECONDARY_FGK=1
-#     LZMA_API_STATIC
-#     _CRT_SECURE_NO_WARNINGS
-# )
+# Add xdelta required definitions for all targets
+# Use CMake to determine the correct size_t size for the target architecture
+include(CheckTypeSize)
+check_type_size("size_t" SIZEOF_SIZE_T)
+check_type_size("unsigned long long" SIZEOF_UNSIGNED_LONG_LONG)
 
-# Add basic compile definitions
 add_compile_definitions(
+    SIZEOF_SIZE_T=${SIZEOF_SIZE_T}
+    SIZEOF_UNSIGNED_LONG_LONG=${SIZEOF_UNSIGNED_LONG_LONG}
+    XD3_USE_LARGEFILE64=1
+    SECONDARY_DJW=1
+    SECONDARY_LZMA=1
+    SECONDARY_FGK=1
+    LZMA_API_STATIC
     _CRT_SECURE_NO_WARNINGS
 )
+
+# Note: _CRT_SECURE_NO_WARNINGS already defined above with xdelta definitions
 
 if(WIN32)
     add_compile_definitions(
         _WIN32=1
-        # XD3_WIN32=1  # Temporarily disabled
+        XD3_WIN32=1
     )
 endif()
 
-# Temporarily disable delta files
-# set(EACOPY_SHARED_FILES
-#     ${EACOPY_SHARED_FILES}
-#     ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyDelta.h
-#     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDelta.cpp
-#     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaZstd.h
-#     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaXDelta.h)
+# Add delta copy files
+set(EACOPY_SHARED_FILES
+    ${EACOPY_SHARED_FILES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyDelta.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDelta.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaZstd.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaXDelta.h)
 
 add_executable(EACopy
     source/EACopy.cpp
@@ -186,8 +188,8 @@ if(EACOPY_BUILD_AS_LIBRARY)
         target_link_libraries(EACopyLib ${EACOPY_EXTERNAL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
     endif (UNIX)
 
-    # Set delta copy option (currently disabled)
-    set(EACOPY_ALLOW_DELTA_COPY OFF CACHE BOOL "Enable delta copy functionality")
+    # Set delta copy option (now enabled)
+    set(EACOPY_ALLOW_DELTA_COPY ON CACHE BOOL "Enable delta copy functionality")
 
     # Add compile definitions
     target_compile_definitions(EACopyLib PUBLIC
