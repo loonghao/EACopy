@@ -10,5 +10,7 @@
 // LZMA - using vcpkg
 #include <lzma.h>
 
-// XDELTA - still using local source
+// XDELTA - only include when delta copy is enabled
+#if defined(EACOPY_ALLOW_DELTA_COPY)
 #include "../external/xdelta/xdelta3/xdelta3.h"
+#endif
