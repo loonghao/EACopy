@@ -125,25 +125,56 @@ jobs:
       run: |
         export VCPKG_ROOT="${{ github.workspace }}/vcpkg"
 
+        echo "Building for triplet: ${{ matrix.triplet }}, config: ${{ matrix.config }}"
+        echo "VCPKG_ROOT: $VCPKG_ROOT"
+
         # Create build directory
         mkdir -p build-${{ matrix.triplet }}-${{ matrix.config }}
         cd build-${{ matrix.triplet }}-${{ matrix.config }}
 
+        # Set architecture for Visual Studio
+        if [[ "${{ matrix.triplet }}" == "x64-windows" ]]; then
+          ARCH="x64"
+        else
+          ARCH="Win32"
+        fi
+
+        echo "Using Visual Studio architecture: $ARCH"
+
         # Configure CMake
         cmake .. \
           -G "Visual Studio 17 2022" \
-          -A ${{ matrix.triplet == 'x64-windows' && 'x64' || 'Win32' }} \
+          -A "$ARCH" \
           -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
           -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
           -DEACOPY_BUILD_TESTS=OFF \
           -DEACOPY_BUILD_AS_LIBRARY=ON \
           -DEACOPY_INSTALL=ON
 
+        if [ $? -ne 0 ]; then
+          echo "CMake configuration failed"
+          exit 1
+        fi
+
         # Build
+        echo "Starting build..."
         cmake --build . --config ${{ matrix.config }} --verbose
 
+        if [ $? -ne 0 ]; then
+          echo "Build failed"
+          exit 1
+        fi
+
         # Install to staging directory
+        echo "Installing to staging directory..."
         cmake --install . --config ${{ matrix.config }} --prefix ../install-${{ matrix.triplet }}-${{ matrix.config }}
+
+        if [ $? -ne 0 ]; then
+          echo "Install failed"
+          exit 1
+        fi
+
+        echo "Build completed successfully"
 
     - name: Package binaries
       shell: bash

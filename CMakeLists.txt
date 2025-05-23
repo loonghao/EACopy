@@ -127,8 +127,12 @@ add_executable(EACopy
 
 # Set include directories
 set(EACOPY_INCLUDE_DIRS
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# Add vcpkg include directories if available
+if(DEFINED VCPKG_TARGET_TRIPLET)
+    list(APPEND EACOPY_INCLUDE_DIRS ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include)
+endif()
 
 target_include_directories(EACopy PUBLIC ${EACOPY_INCLUDE_DIRS})
 
