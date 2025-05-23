@@ -186,9 +186,12 @@ if(EACOPY_BUILD_AS_LIBRARY)
         target_link_libraries(EACopyLib ${EACOPY_EXTERNAL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
     endif (UNIX)
 
-    # Add compile definitions (temporarily disabled delta copy)
+    # Set delta copy option (currently disabled)
+    set(EACOPY_ALLOW_DELTA_COPY OFF CACHE BOOL "Enable delta copy functionality")
+
+    # Add compile definitions
     target_compile_definitions(EACopyLib PUBLIC
-            # EACOPY_ALLOW_DELTA_COPY  # Temporarily disabled
+            $<$<BOOL:${EACOPY_ALLOW_DELTA_COPY}>:EACOPY_ALLOW_DELTA_COPY>
             $<$<BOOL:${WIN32}>:NOMINMAX>
             $<$<BOOL:${WIN32}>:WIN32_LEAN_AND_MEAN>
         )
