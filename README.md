@@ -113,7 +113,7 @@ After installing via vcpkg, the command-line tools are available at:
 [![Build and Test](https://github.com/loonghao/EACopy/actions/workflows/build.yml/badge.svg)](https://github.com/loonghao/EACopy/actions/workflows/build.yml)
 [![CI](https://github.com/loonghao/EACopy/actions/workflows/ci.yml/badge.svg)](https://github.com/loonghao/EACopy/actions/workflows/ci.yml)
 
-EACopy uses vcpkg to manage third-party dependencies (zstd, liblzma). This simplifies the build process and eliminates the need for git submodules.
+EACopy uses vcpkg to manage all third-party dependencies (zstd, liblzma, xdelta). This simplifies the build process and eliminates the need for git submodules.
 
 ### Prerequisites
 

@@ -7,7 +7,7 @@
 
 #if defined(EACOPY_ALLOW_DELTA_COPY)
 
-// Include xdelta3 headers
+// Include xdelta3 headers from vcpkg
 #include <xdelta3/xdelta3.h>
 
 #endif
