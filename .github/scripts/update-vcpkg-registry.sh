@@ -51,10 +51,10 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 # Check if registry files exist
-PORTFILE_PATH="ports/eacopy/portfile.cmake"
-VCPKG_JSON_PATH="ports/eacopy/vcpkg.json"
-VERSION_JSON_PATH="versions/e-/eacopy.json"
-BASELINE_JSON_PATH="versions/baseline.json"
+PORTFILE_PATH="vcpkg-registry/ports/eacopy/portfile.cmake"
+VCPKG_JSON_PATH="vcpkg-registry/ports/eacopy/vcpkg.json"
+VERSION_JSON_PATH="vcpkg-registry/versions/e-/eacopy.json"
+BASELINE_JSON_PATH="vcpkg-registry/versions/baseline.json"
 
 if [[ ! -f "$PORTFILE_PATH" ]]; then
   echo "Error: portfile.cmake not found at $PORTFILE_PATH"
@@ -76,24 +76,36 @@ if [[ ! -f "$BASELINE_JSON_PATH" ]]; then
   exit 1
 fi
 
-# Get current git commit hash for git-tree
-GIT_TREE=$(git rev-parse HEAD)
-echo "Current git-tree: $GIT_TREE"
+# Calculate git-tree after all file updates
+if [[ "$DRY_RUN" == "false" ]]; then
+  echo "Calculating git-tree after file updates..."
+
+  # Stage the changes to get the correct git-tree
+  git add vcpkg-registry/
+
+  # Calculate git-tree for the ports/eacopy directory
+  GIT_TREE=$(git write-tree --prefix=vcpkg-registry/ports/eacopy/)
+  echo "Git-tree hash: $GIT_TREE"
+else
+  # For dry run, use current HEAD as placeholder
+  GIT_TREE=$(git rev-parse HEAD)
+  echo "Current git-tree (dry run): $GIT_TREE"
+fi
 
 # Update portfile.cmake
 if [[ "$DRY_RUN" == "false" ]]; then
   echo "Updating $PORTFILE_PATH..."
-  
+
   # Update the REF line to point to the current commit
   sed -i "s|REF [a-f0-9]*|REF $GIT_TREE|g" "$PORTFILE_PATH"
-  
+
   # If using pre-built binaries approach (like xdelta), update SHA512
   if grep -q "SHA512" "$PORTFILE_PATH"; then
     sed -i 's|SHA512 "to-be-filled-after-release"|SHA512 "'"$SHA512"'"|g' "$PORTFILE_PATH"
     sed -i 's|SHA512 "[a-f0-9]*"|SHA512 "'"$SHA512"'"|g' "$PORTFILE_PATH"
     echo "✅ Updated SHA512 in portfile.cmake"
   fi
-  
+
   echo "✅ Updated REF in portfile.cmake"
 else
   echo "[DRY RUN] Would update REF in $PORTFILE_PATH to: $GIT_TREE"

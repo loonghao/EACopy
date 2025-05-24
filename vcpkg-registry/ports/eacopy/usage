@@ -1,0 +1,34 @@
+# Using EACopy with vcpkg
+
+This package provides the EACopy command-line tools and library files for use with vcpkg.
+
+## Command-line Usage
+
+The EACopy executables are available at:
+- `${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/eacopy/EACopy.exe`
+- `${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/eacopy/EACopyService.exe`
+
+## Including in Your Project
+
+To use EACopy in your C/C++ project:
+
+```cpp
+#include <eacopy/EACopyShared.h>
+#include <eacopy/EACopyClient.h>
+```
+
+Then link against the EACopy library:
+
+```cmake
+find_package(EACopy CONFIG REQUIRED)
+target_link_libraries(your_target PRIVATE EACopy::EACopyLib)
+```
+
+## Features
+
+- High-performance file copying with network support
+- Delta compression capabilities (when xdelta is available)
+- Cross-platform compatibility (Windows primary, Linux support)
+- Service mode for network file operations
+
+For more information, visit: https://github.com/loonghao/EACopy
