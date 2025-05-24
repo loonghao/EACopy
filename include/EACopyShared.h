@@ -79,10 +79,19 @@ public:
 	template<class Functor> void scoped(const Functor& f) { enter(); f(); leave(); }
 
 private:
-	u64					data[5];
+#if defined(_WIN32)
+	// Use proper size for different architectures
+	#if defined(_M_X64) || defined(__x86_64__)
+		u64					data[5];  // x64: CRITICAL_SECTION is 40 bytes
+	#else
+		u64					data[6];  // x86: CRITICAL_SECTION is 24 bytes, but we need alignment
+	#endif
+#else
+	u64					data[5];  // Unix: pthread_mutex_t
+#endif
 };
 
-class ScopedCriticalSection 
+class ScopedCriticalSection
 {
 public:
 	ScopedCriticalSection(CriticalSection& cs) : m_cs(cs), m_active(true) { cs.enter(); }
@@ -473,11 +482,11 @@ uint GetLastError();
 #define MAX_PATH 260
 #define _wcsicmp wcscasecmp
 #define _wcsnicmp wcsncasecmp
-#define FILE_ATTRIBUTE_READONLY             0x00000001  
-#define FILE_ATTRIBUTE_HIDDEN               0x00000002  
-#define FILE_ATTRIBUTE_DIRECTORY            0x00000010  
-#define FILE_ATTRIBUTE_NORMAL               0x00000080  
-#define FILE_ATTRIBUTE_REPARSE_POINT        0x00000400  
+#define FILE_ATTRIBUTE_READONLY             0x00000001
+#define FILE_ATTRIBUTE_HIDDEN               0x00000002
+#define FILE_ATTRIBUTE_DIRECTORY            0x00000010
+#define FILE_ATTRIBUTE_NORMAL               0x00000080
+#define FILE_ATTRIBUTE_REPARSE_POINT        0x00000400
 #define ERROR_FILE_NOT_FOUND             2L
 #define ERROR_PATH_NOT_FOUND             3L
 #define ERROR_INVALID_HANDLE             6L
