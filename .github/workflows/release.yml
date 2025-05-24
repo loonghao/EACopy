@@ -349,7 +349,7 @@ jobs:
           - Updated baseline.json
 
           This commit was created automatically by the release workflow.
-        file_pattern: 'ports/ versions/'
+        file_pattern: 'vcpkg-registry/'
         commit_user_name: 'GitHub Actions'
         commit_user_email: 'actions@github.com'
         commit_author: 'GitHub Actions <actions@github.com>'

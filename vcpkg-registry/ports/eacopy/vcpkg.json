@@ -1,0 +1,8 @@
+{
+  "name": "eacopy",
+  "version": "1.20.0",
+  "description": "EACopy is a high-performance file copy utility with delta compression capabilities developed by Electronic Arts",
+  "homepage": "https://github.com/loonghao/EACopy",
+  "license": "BSD-3-Clause",
+  "supports": "windows"
+}

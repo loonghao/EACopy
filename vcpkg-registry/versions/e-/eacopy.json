@@ -1,0 +1,9 @@
+{
+  "versions": [
+    {
+      "version": "1.20.0",
+      "port-version": 0,
+      "git-tree": "to-be-filled-after-release"
+    }
+  ]
+}
