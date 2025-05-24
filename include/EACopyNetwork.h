@@ -4,8 +4,13 @@
 #include "EACopyShared.h"
 #include <cstring>
 
+#if defined(_WIN32)
+#include <winsock2.h>
+// Use system SOCKET type on Windows
+#else
 typedef eacopy::u64 SOCKET;
 #define INVALID_SOCKET  (SOCKET)(~0)
+#endif
 
 struct Guid {
     unsigned long  Data1;

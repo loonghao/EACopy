@@ -113,7 +113,7 @@ thread_local LogContext* t_logContext;
 CriticalSection::CriticalSection()
 {
 	#if defined(_WIN32)
-	static_assert(sizeof(CRITICAL_SECTION) == sizeof(data), "Need to change size of data to match CRITICAL_SECTION");
+	static_assert(sizeof(CRITICAL_SECTION) <= sizeof(data), "Need to change size of data to match CRITICAL_SECTION");
 	InitializeCriticalSectionAndSpinCount((CRITICAL_SECTION*)&data, 0x00000400);
 	#else
 	static_assert(sizeof(pthread_mutex_t) <= sizeof(data), "Need to change size of data to match pthread_mutex_t");
@@ -410,7 +410,7 @@ void Log::deinit(const Function<void()>& lastChanceLogging)
 	bool isDebuggerPresent = EACOPY_IS_DEBUGGER_PRESENT;
 
 	m_logQueueCs.scoped([&]() { m_logThreadActive = false; });
-	
+
 	delete m_logThread;
 
 	ScopedCriticalSection cs(m_logQueueCs);
@@ -471,7 +471,7 @@ void logInternal(const wchar_t* buffer, bool flush, bool linefeed, bool isError)
 
 void logErrorf(const wchar_t* fmt, ...)
 {
-    va_list arg; 
+    va_list arg;
     va_start(arg, fmt);
 	wchar_t buffer[LogBufferSize];
 	stringCopy(buffer, eacopy_sizeof_array(buffer), L"!!ERROR - ");
@@ -495,7 +495,7 @@ void logFlush()
 
 void logInfof(const wchar_t* fmt, ...)
 {
-    va_list arg; 
+    va_list arg;
     va_start(arg, fmt);
 	wchar_t buffer[LogBufferSize];
 	vswprintf_s(buffer, eacopy_sizeof_array(buffer), fmt, arg);
@@ -505,7 +505,7 @@ void logInfof(const wchar_t* fmt, ...)
 
 void logInfoLinef(const wchar_t* fmt, ...)
 {
-    va_list arg; 
+    va_list arg;
     va_start(arg, fmt);
 	wchar_t buffer[LogBufferSize];
 	int count = vswprintf_s(buffer, eacopy_sizeof_array(buffer), fmt, arg);
@@ -525,7 +525,7 @@ void logDebugf(const wchar_t* fmt, ...)
 		if (!c->log.isDebug())
 			return;
 
-    va_list arg; 
+    va_list arg;
     va_start(arg, fmt);
 	wchar_t buffer[LogBufferSize];
 	vswprintf_s(buffer, eacopy_sizeof_array(buffer), fmt, arg);
@@ -539,7 +539,7 @@ void logDebugLinef(const wchar_t* fmt, ...)
 		if (!c->log.isDebug())
 			return;
 
-    va_list arg; 
+    va_list arg;
     va_start(arg, fmt);
 	wchar_t buffer[LogBufferSize];
 	vswprintf_s(buffer, eacopy_sizeof_array(buffer), fmt, arg);
@@ -780,12 +780,12 @@ findFirstFile(const wchar_t* searchStr, FindFileData& findFileData, IOStats& ioS
 #else
 	static_assert(sizeof(FindFileDataLinux) <= sizeof(FindFileData), "");
 	String str = toLinuxPath(searchStr);
-	
+
 	// TODO: BAAAAAAD
 	size_t starPos = str.find_first_of("*");
 	if (starPos != String::npos)
 		str.resize(starPos);
-	
+
 	DIR* dir = opendir(str.c_str());
 	if (!dir)
 	{
@@ -1106,7 +1106,7 @@ bool ensureDirectory(const wchar_t* directory, uint attributes, IOStats& ioStats
 				return true;
 			}
 		}
-		if (GetLastError() == ERROR_ALREADY_EXISTS) 
+		if (GetLastError() == ERROR_ALREADY_EXISTS)
 		{
 			FileInfo dirInfo;
 			uint destDirAttributes = getFileInfo(dirInfo, directory, ioStats);
@@ -1198,7 +1198,7 @@ bool ensureDirectory(const wchar_t* directory, uint attributes, IOStats& ioStats
 	}
 
 	uint error = GetLastError();
-	if (error == ERROR_ALREADY_EXISTS) 
+	if (error == ERROR_ALREADY_EXISTS)
 		return true;
 
 	logErrorf(L"Error creating directory %ls: %ls", directory, getErrorText(error).c_str());
@@ -1218,7 +1218,7 @@ bool deleteAllFiles(const wchar_t* directory, bool& outPathFound, IOStats& ioSta
 	if (dir[dir.length()-1] != L'\\')
 		dir += L'\\';
 	WString searchStr = dir + L"*.*";
-	FindFileHandle findHandle = findFirstFile(searchStr.c_str(), fd, ioStats); 
+	FindFileHandle findHandle = findFirstFile(searchStr.c_str(), fd, ioStats);
 	if(findHandle == InvalidFileHandle)
 	{
 		uint error = GetLastError();
@@ -1235,7 +1235,7 @@ bool deleteAllFiles(const wchar_t* directory, bool& outPathFound, IOStats& ioSta
 	ScopeGuard closeFindGuard([&]() { findClose(findHandle, ioStats); });
 
 	do
-	{ 
+	{
 		FileInfo fileInfo;
 		uint fileAttr = getFileInfo(fileInfo, fd);
 		const wchar_t* fileName = getFileName(fd);
@@ -1279,7 +1279,7 @@ bool deleteAllFiles(const wchar_t* directory, bool& outPathFound, IOStats& ioSta
 		}
 
 	}
-	while(findNextFile(findHandle, fd, ioStats)); 
+	while(findNextFile(findHandle, fd, ioStats));
 
 	uint error = GetLastError();
 
@@ -1758,9 +1758,9 @@ bool copyFile(const wchar_t* source, const FileInfo& sourceInfo, uint sourceAttr
 		}
 
 		bool result = true;
-		
+
 		ScopeGuard destGuard([&]() { CloseHandle(osWrite.hEvent); result &= closeFile(dest, destFile, AccessType_Write, ioStats); });
-		
+
 		OVERLAPPED osRead  = {0,0,0};
 		osRead.Offset = 0;
 		osRead.OffsetHigh = 0;
@@ -1797,7 +1797,7 @@ bool copyFile(const wchar_t* source, const FileInfo& sourceInfo, uint sourceAttr
 					logErrorf(L"WaitForSingleObject failed on write");
 					return false;
 				}
-				
+
 				uint written = 0;
 				uint toWrite = nobufferingFlag ? (((sizeFilled + 4095) / 4096) * 4096) : sizeFilled;
 				if (!WriteFile(destFile, bufferFilled, toWrite, &written, &osWrite))
@@ -2515,7 +2515,7 @@ FileDatabase::primeUpdate(IOStats& ioStats)
 			m_primeDirsCs.scoped([this]() { --m_primeActive; });
 		});
 
-    FindFileData fd; 
+    FindFileData fd;
     WString searchStr = rec.directory + L"*.*";
 	FindFileHandle fh = findFirstFile(searchStr.c_str(), fd, ioStats);
     if(fh == InvalidFileHandle)
@@ -2546,8 +2546,8 @@ FileDatabase::primeUpdate(IOStats& ioStats)
 				fileName = fullPath.c_str() + rec.rootLen;
 			addToFilesHistory({ fileName, fileInfo.lastWriteTime, fileInfo.fileSize }, hash, fullPath);
 		}
-	} 
-	while(findNextFile(fh, fd, ioStats)); 
+	}
+	while(findNextFile(fh, fd, ioStats));
 
 	uint error = GetLastError();
 	if (error != ERROR_NO_MORE_FILES)

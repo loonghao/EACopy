@@ -19,7 +19,7 @@ if(POLICY CMP0074)
   cmake_policy(SET CMP0074 NEW)  # find_package uses <PackageName>_ROOT variables
 endif()
 
-project(EACopy VERSION 1.20.0 LANGUAGES CXX)
+project(EACopy VERSION 1.20.0 LANGUAGES C CXX)
 
 # NOTE: Only used in multi-configuration environments
 set(CMAKE_CONFIGURATION_TYPES "Debug;Release" CACHE STRING "My multi config types" FORCE)
@@ -65,7 +65,57 @@ endif (UNIX)
 # Find required packages
 find_package(zstd CONFIG REQUIRED)
 find_package(LibLZMA REQUIRED)
-find_package(xdelta CONFIG REQUIRED)
+# Try to find xdelta via CONFIG first, fallback to manual search
+find_package(xdelta CONFIG QUIET)
+if(NOT xdelta_FOUND)
+    # Manual search for xdelta when CONFIG is not available
+    find_path(XDELTA_INCLUDE_DIR
+        NAMES xdelta3/xdelta3.h
+        PATHS ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include
+    )
+
+    find_library(XDELTA_LIBRARY_RELEASE
+        NAMES xdelta
+        PATHS ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib
+    )
+
+    find_library(XDELTA_LIBRARY_DEBUG
+        NAMES xdeltad xdelta
+        PATHS ${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/lib
+    )
+
+    if(XDELTA_INCLUDE_DIR AND (XDELTA_LIBRARY_RELEASE OR XDELTA_LIBRARY_DEBUG))
+        # Create imported target
+        add_library(xdelta::xdelta STATIC IMPORTED)
+        set_target_properties(xdelta::xdelta PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${XDELTA_INCLUDE_DIR}"
+        )
+
+        if(XDELTA_LIBRARY_RELEASE)
+            set_property(TARGET xdelta::xdelta APPEND PROPERTY
+                IMPORTED_CONFIGURATIONS RELEASE
+            )
+            set_target_properties(xdelta::xdelta PROPERTIES
+                IMPORTED_LOCATION_RELEASE "${XDELTA_LIBRARY_RELEASE}"
+            )
+        endif()
+
+        if(XDELTA_LIBRARY_DEBUG)
+            set_property(TARGET xdelta::xdelta APPEND PROPERTY
+                IMPORTED_CONFIGURATIONS DEBUG
+            )
+            set_target_properties(xdelta::xdelta PROPERTIES
+                IMPORTED_LOCATION_DEBUG "${XDELTA_LIBRARY_DEBUG}"
+            )
+        endif()
+
+        message(STATUS "Found xdelta: ${XDELTA_INCLUDE_DIR}")
+        set(xdelta_FOUND TRUE)
+    else()
+        message(STATUS "xdelta not found, delta copy functionality will be disabled")
+        set(xdelta_FOUND FALSE)
+    endif()
+endif()
 
 #-------------------------------------------------------------------------------------------
 # Library definitions
@@ -74,9 +124,13 @@ find_package(xdelta CONFIG REQUIRED)
 # Set external libraries list
 set(EACOPY_ZSTD_LIB zstd::libzstd)
 set(EACOPY_LZMA_LIB LibLZMA::LibLZMA)
-set(EACOPY_XDELTA_LIB xdelta::xdelta)
-
-set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_LZMA_LIB} ${EACOPY_XDELTA_LIB})
+# Conditionally add xdelta library
+if(xdelta_FOUND)
+    set(EACOPY_XDELTA_LIB xdelta::xdelta)
+    set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_LZMA_LIB} ${EACOPY_XDELTA_LIB})
+else()
+    set(EACOPY_EXTERNAL_LIBS ${EACOPY_ZSTD_LIB} ${EACOPY_LZMA_LIB})
+endif()
 
 set(EACOPY_SHARED_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyNetwork.h
@@ -85,7 +139,13 @@ set(EACOPY_SHARED_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyShared.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/source/Addition.manifest)
 
-add_definitions(-DEACOPY_ALLOW_DELTA_COPY)
+# Conditionally enable delta copy functionality
+if(xdelta_FOUND)
+    add_definitions(-DEACOPY_ALLOW_DELTA_COPY)
+    message(STATUS "Delta copy functionality enabled")
+else()
+    message(STATUS "Delta copy functionality disabled (xdelta not found)")
+endif()
 
 # Add xdelta required definitions for all targets
 # Use CMake to determine the correct size_t size for the target architecture
@@ -113,13 +173,15 @@ if(WIN32)
     )
 endif()
 
-# Add delta copy files
-set(EACOPY_SHARED_FILES
-    ${EACOPY_SHARED_FILES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyDelta.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDelta.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaZstd.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaXDelta.h)
+# Conditionally add delta copy files
+if(xdelta_FOUND)
+    set(EACOPY_SHARED_FILES
+        ${EACOPY_SHARED_FILES}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/EACopyDelta.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDelta.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaZstd.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/EACopyDeltaXDelta.h)
+endif()
 
 add_executable(EACopy
     source/EACopy.cpp
@@ -188,8 +250,8 @@ if(EACOPY_BUILD_AS_LIBRARY)
         target_link_libraries(EACopyLib ${EACOPY_EXTERNAL_LIBS} ${CMAKE_THREAD_LIBS_INIT})
     endif (UNIX)
 
-    # Set delta copy option (now enabled)
-    set(EACOPY_ALLOW_DELTA_COPY ON CACHE BOOL "Enable delta copy functionality")
+    # Set delta copy option based on xdelta availability
+    set(EACOPY_ALLOW_DELTA_COPY ${xdelta_FOUND} CACHE BOOL "Enable delta copy functionality")
 
     # Add compile definitions
     target_compile_definitions(EACopyLib PUBLIC
