@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         config: [Debug, Release]
+        arch: [x64, x86]
 
     steps:
     - uses: actions/checkout@v4
@@ -25,41 +26,58 @@ jobs:
         vcpkgDirectory: '${{ github.workspace }}/vcpkg'
         vcpkgGitCommitId: 'f26ec398c25c4980f33a50391f00a75f7ad62ef7'
 
-    - name: Configure CMake
+    - name: Build with unified script
+      env:
+        VCPKG_ROOT: '${{ github.workspace }}/vcpkg'
+        CI: 'true'
       run: |
-        mkdir build_${{ matrix.config }}
-        cd build_${{ matrix.config }}
-        # Set VCPKG_ROOT for this step
-        $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
-        # Configure with vcpkg toolchain
-        cmake .. -DEACOPY_BUILD_TESTS:BOOL=ON -DCMAKE_CXX_FLAGS="/DMSG_WAITALL=0x8" -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-
-    - name: Build
-      run: |
-        cd build_${{ matrix.config }}
-        cmake --build . --config ${{ matrix.config }}
-
-    - name: Run Unit Tests
-      run: |
-        cd build_${{ matrix.config }}/test
-        ctest -C ${{ matrix.config }} -V
+        # Use the unified build script with specific configuration
+        scripts\build.bat --arch ${{ matrix.arch }} --config ${{ matrix.config }} --clean --build-dir build_${{ matrix.arch }}_${{ matrix.config }}
 
     - name: Verify Executable Functionality
       run: |
         # Test if EACopy executable works with help flag
-        cd build_${{ matrix.config }}
-        ./${{ matrix.config }}/EACopy.exe --help || ./${{ matrix.config }}/EACopy.exe /? || (echo "EACopy executable failed to run with help flag" && exit 1)
+        $BuildDir = "build_${{ matrix.arch }}_${{ matrix.config }}"
+        $ExePath = "$BuildDir\${{ matrix.config }}\EACopy.exe"
+        $ServicePath = "$BuildDir\${{ matrix.config }}\EACopyService.exe"
 
-        # Test if EACopyService executable works with help flag (Windows only)
-        ./${{ matrix.config }}/EACopyService.exe /? || (echo "EACopyService executable failed to run with help flag" && exit 1)
+        Write-Host "Testing EACopy executable at: $ExePath"
+        if (Test-Path $ExePath) {
+          & $ExePath --help
+          if ($LASTEXITCODE -ne 0) {
+            & $ExePath /?
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "EACopy executable failed to run with help flag"
+              exit 1
+            }
+          }
+          Write-Host "EACopy executable test passed"
+        } else {
+          Write-Host "EACopy executable not found at: $ExePath"
+          exit 1
+        }
+
+        Write-Host "Testing EACopyService executable at: $ServicePath"
+        if (Test-Path $ServicePath) {
+          & $ServicePath /?
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "EACopyService executable failed to run with help flag"
+            exit 1
+          }
+          Write-Host "EACopyService executable test passed"
+        } else {
+          Write-Host "EACopyService executable not found at: $ServicePath"
+          exit 1
+        }
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: EACopy-${{ matrix.config }}
+        name: EACopy-${{ matrix.arch }}-${{ matrix.config }}
         path: |
-          build_${{ matrix.config }}/${{ matrix.config }}/*.exe
-          build_${{ matrix.config }}/${{ matrix.config }}/*.dll
+          build_${{ matrix.arch }}_${{ matrix.config }}/${{ matrix.config }}/*.exe
+          build_${{ matrix.arch }}_${{ matrix.config }}/${{ matrix.config }}/*.dll
+          build_${{ matrix.arch }}_${{ matrix.config }}/${{ matrix.config }}/*.lib
         if-no-files-found: error
 
   performance-test:
@@ -81,7 +99,7 @@ jobs:
     - name: Download Release Build
       uses: actions/download-artifact@v4
       with:
-        name: EACopy-Release
+        name: EACopy-x64-Release
         path: ./Release
 
     - name: Download Previous Performance History
@@ -128,9 +146,15 @@ jobs:
         $ExecutablesToFind = @("EACopy", "EACopyService")
 
         $PossiblePaths = @(
-            # CI environment paths (most likely)
+            # CI environment paths (most likely) - updated for new build structure
             "./Release/{0}.exe",
-            # Build paths
+            "./Release/Release/{0}.exe",
+            # New unified build script paths
+            "./build_x64_Release/Release/{0}.exe",
+            "./build_x86_Release/Release/{0}.exe",
+            "./build_x64_Debug/Debug/{0}.exe",
+            "./build_x86_Debug/Debug/{0}.exe",
+            # Legacy build paths for compatibility
             "./build/Release/{0}.exe",
             "./build_Release/Release/{0}.exe",
             "./build/Debug/{0}.exe",
