@@ -7,7 +7,6 @@
   "dependencies": [
     "zstd",
     "liblzma",
-    "xdelta",
     {
       "name": "vcpkg-cmake",
       "host": true
