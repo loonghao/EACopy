@@ -281,6 +281,17 @@ if(EACOPY_INSTALL)
         FILES_MATCHING PATTERN "*.h"
     )
 
+    # Install executables
+    install(TARGETS EACopy
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+
+    if (WIN32)
+        install(TARGETS EACopyService
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    endif(WIN32)
+
     if(EACOPY_BUILD_AS_LIBRARY)
         # Install main library
         install(TARGETS EACopyLib
